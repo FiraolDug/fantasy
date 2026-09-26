@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import ADMIN_ROLES, get_current_user
-from app.models import User, UserRole
+from app.models import FPLTeam, User
 from app.schemas import Token, UserOut
 from app.security import create_access_token, verify_password
 from app.services.telegram_auth import InvalidInitData, validate_init_data
@@ -20,9 +20,8 @@ class TelegramWebAppAuth(BaseModel):
 @router.post("/telegram-webapp", response_model=Token)
 def telegram_webapp_login(payload: TelegramWebAppAuth, db: Session = Depends(get_db)):
     """
-    Mini App entry point. Verifies Telegram's signed initData, then finds or
-    creates the corresponding User and issues a normal (role=USER) JWT for
-    all subsequent API calls from the Mini App.
+    Mini App entry point. Verifies Telegram's signed initData and only issues
+    a JWT after the bot has collected the user's phone and verified FPL team.
     """
     try:
         tg_user = validate_init_data(payload.init_data)
@@ -32,16 +31,29 @@ def telegram_webapp_login(payload: TelegramWebAppAuth, db: Session = Depends(get
     telegram_id = str(tg_user["id"])
     user = db.query(User).filter(User.telegram_id == telegram_id).first()
     if user is None:
-        full_name = " ".join(
-            filter(None, [tg_user.get("first_name"), tg_user.get("last_name")])
-        ) or None
-        user = User(telegram_id=telegram_id, full_name=full_name, role=UserRole.USER)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Start the bot and complete registration before opening the Mini App.",
+        )
 
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+
+    if not user.phone_number:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Share your phone number with the bot to complete registration.",
+        )
+    team = (
+        db.query(FPLTeam)
+        .filter(FPLTeam.user_id == user.id, FPLTeam.verified.is_(True))
+        .first()
+    )
+    if team is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Send your FPL Manager ID to the bot and confirm your team first.",
+        )
 
     token = create_access_token(subject=str(user.id), role=user.role.value)
     return Token(access_token=token)

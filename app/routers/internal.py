@@ -36,6 +36,22 @@ class FPLConfirmRequest(BaseModel):
     manager_id: str
 
 
+@router.get("/registration/{telegram_id}", dependencies=[Depends(require_bot_secret)])
+def registration_status(telegram_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+    team = None
+    if user is not None:
+        team = (
+            db.query(FPLTeam)
+            .filter(FPLTeam.user_id == user.id, FPLTeam.verified.is_(True))
+            .first()
+        )
+    return {
+        "phone_registered": bool(user and user.phone_number),
+        "team_registered": team is not None,
+    }
+
+
 @router.post("/register", dependencies=[Depends(require_bot_secret)])
 def internal_register(payload: RegisterRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.telegram_id == payload.telegram_id).first()

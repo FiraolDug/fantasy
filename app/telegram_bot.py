@@ -46,8 +46,50 @@ def _headers():
     return {"X-Bot-Secret": settings.bot_internal_secret}
 
 
+async def _registration_status(telegram_id: int):
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{BACKEND_URL}/internal/registration/{telegram_id}",
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _send_app_button(message: Message):
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Open Mini App", web_app=WebAppInfo(url=settings.mini_app_url))]
+        ]
+    )
+    await message.answer("You're registered. Open the Mini App to view this week's competition:", reply_markup=kb)
+
+
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
+    try:
+        registration = await _registration_status(message.from_user.id)
+    except httpx.HTTPError:
+        logger.exception("Could not check Telegram registration")
+        await message.answer("Registration is temporarily unavailable. Please try /start again shortly.")
+        return
+
+    if registration["phone_registered"] and registration["team_registered"]:
+        await state.clear()
+        await _send_app_button(message)
+        return
+
+    if registration["phone_registered"]:
+        await state.set_state(Registration.waiting_for_manager_id)
+        await message.answer(
+            "Your phone is registered. Now enter your FPL Manager ID.\n"
+            "You can find it in the URL of your FPL points page, e.g. "
+            "fantasy.premierleague.com/entry/<b>7410729</b>/event/6",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode="HTML",
+        )
+        return
+
     await state.set_state(Registration.waiting_for_contact)
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="Share my phone number", request_contact=True)]],
@@ -63,6 +105,10 @@ async def start(message: Message, state: FSMContext):
 
 @dp.message(Registration.waiting_for_contact, F.contact)
 async def got_contact(message: Message, state: FSMContext):
+    if message.contact.user_id != message.from_user.id:
+        await message.answer("Please use the Share my phone number button to share your own number.")
+        return
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{BACKEND_URL}/internal/register",
@@ -85,7 +131,7 @@ async def got_contact(message: Message, state: FSMContext):
     )
 
 
-@dp.message(Registration.waiting_for_manager_id, F.text)
+@dp.message(Registration.waiting_for_manager_id, F.text & ~F.text.startswith("/"))
 async def got_manager_id(message: Message, state: FSMContext):
     manager_id = message.text.strip()
     async with httpx.AsyncClient() as client:
@@ -161,10 +207,5 @@ async def confirm_team(callback: CallbackQuery, state: FSMContext):
 
 
 @dp.message(F.text == "/app")
-async def open_app(message: Message):
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Open Mini App", web_app=WebAppInfo(url=settings.mini_app_url))]
-        ]
-    )
-    await message.answer("Tap below to open the app:", reply_markup=kb)
+async def open_app(message: Message, state: FSMContext):
+    await start(message, state)

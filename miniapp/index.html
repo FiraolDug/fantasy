@@ -117,6 +117,17 @@
       .screen.active {
         display: block;
       }
+      /* First-run registration (phone verified, FPL Manager ID not yet
+         linked): show only the Manager ID screen, no nav/header/back-out,
+         so a brand-new user can't wander the app before finishing setup. */
+      body.registration-mode header,
+      body.registration-mode .nav,
+      body.registration-mode #verifyBackBtn {
+        display: none;
+      }
+      body.registration-mode .app {
+        padding-bottom: 0;
+      }
 
       h1 {
         font-size: 24px;
@@ -829,7 +840,7 @@
 
         <!-- ONE-TIME REGISTRATION: MANAGER ID ONLY (Telegram already provides name/phone) -->
         <section id="verify" class="screen">
-          <button class="back" onclick="go('games')">‹ Games</button>
+          <button class="back" id="verifyBackBtn" onclick="go('games')">‹ Games</button>
           <span class="badge pending">One-time setup</span>
           <h1>Link your FPL team</h1>
           <p>
@@ -1123,25 +1134,10 @@
       "
     >
       <div>
-        <div id="phoneAuthorization" hidden>
-          <h1>Share your phone with Telegram</h1>
-          <p id="phoneAuthorizationMessage">
-            Telegram will ask you to confirm sharing your number with this bot.
-          </p>
-          <button
-            class="btn primary"
-            id="requestPhoneButton"
-            style="margin-top: 16px"
-            onclick="requestTelegramContact()"
-          >
-            Continue to Telegram confirmation
-          </button>
-        </div>
         <div id="accessRequired">
           <h1>Registration required</h1>
           <p id="accessMessage">
-            Open this Mini App from the bot after sharing your phone number and
-            confirming your FPL Manager ID.
+            Open this Mini App from the bot after sharing your phone number.
           </p>
         </div>
       </div>
@@ -1161,9 +1157,6 @@
       // ============================================================
       const API_BASE = ""; // same-origin: FastAPI serves this file at /miniapp/
       const tg = window.Telegram ? window.Telegram.WebApp : null;
-      const phoneAuthorizationMode =
-        new URLSearchParams(window.location.search).get("authorize_phone") ===
-        "1";
       if (tg) {
         tg.ready();
         tg.expand();
@@ -1199,29 +1192,6 @@
         return true;
       }
 
-      function requestTelegramContact() {
-        const button = document.getElementById("requestPhoneButton");
-        const message = document.getElementById("phoneAuthorizationMessage");
-        if (!tg || typeof tg.requestContact !== "function") {
-          message.textContent =
-            "Phone sharing requires a recent Telegram app. Update Telegram and open /start again.";
-          return;
-        }
-
-        button.disabled = true;
-        tg.requestContact((shared) => {
-          if (shared) {
-            message.textContent =
-              "Telegram sent your approved contact to the bot. Return to the bot chat to continue.";
-            button.hidden = true;
-          } else {
-            message.textContent =
-              "Phone sharing was cancelled. Tap the button to try again.";
-            button.disabled = false;
-          }
-        });
-      }
-
       // ============================================================
       // TELEGRAM IDENTITY — real, from Telegram's signed initData (verified
       // server-side on the /auth/telegram-webapp call above). Phone number
@@ -1246,6 +1216,7 @@
       let pendingManagerLookup = null; // { manager_id, team_name, manager_name } while verify->confirm is in progress
       let pendingDeposit = null; // { amount, method } while the deposit modal is open
       let depositAccounts = null; // from /deposits/instructions
+      let registrationMode = false; // true only for the very first Manager-ID setup on app load
 
       function etb(n) {
         return (
@@ -1673,7 +1644,15 @@
           toast("Team saved to your account");
           await loadProfile();
           render();
-          finishJoin();
+          if (registrationMode) {
+            // First-run setup only — land on Home rather than auto-joining
+            // a gameweek the user didn't explicitly ask to enter.
+            registrationMode = false;
+            document.body.classList.remove("registration-mode");
+            go("home");
+          } else {
+            finishJoin();
+          }
         } catch (e) {
           toast(e.message);
         }
@@ -1941,32 +1920,36 @@
 
       (async function init() {
         const gate = document.getElementById("accessGate");
-        if (phoneAuthorizationMode) {
-          if (!tg || !tg.initData) {
-            document.getElementById("phoneAuthorizationMessage").textContent =
-              "Open this authorization page from the Telegram bot.";
-            document.getElementById("requestPhoneButton").hidden = true;
-          }
-          document.getElementById("accessRequired").hidden = true;
-          document.getElementById("phoneAuthorization").hidden = false;
-          gate.style.display = "grid";
-          return;
-        }
         try {
           await authenticate();
           await Promise.all([loadProfile(), loadWallet(), loadGameweek()]);
-          if (!profile.phone_number || !profile.fpl_manager_id) {
+          if (!profile.phone_number) {
+            // Shouldn't normally happen — the token itself requires a
+            // verified phone — but guard against a stale/edited profile.
             throw new Error(
-              "Open the bot and complete phone and FPL Manager ID registration first.",
+              "Open the bot and share your phone number to continue.",
             );
           }
-          render();
-          document.getElementById("miniApp").style.display = "block";
-          gate.style.display = "none";
         } catch (e) {
           document.getElementById("accessMessage").textContent = e.message;
           gate.style.display = "grid";
+          return;
         }
+
+        document.getElementById("miniApp").style.display = "block";
+        gate.style.display = "none";
+        render();
+
+        if (!profile.fpl_manager_id) {
+          // Phone is verified but the FPL Manager ID step (now handled
+          // entirely inside the Mini App, not the bot chat) isn't done yet.
+          registrationMode = true;
+          document.body.classList.add("registration-mode");
+          go("verify");
+          return;
+        }
+
+        go("home");
       })();
     </script>
   </body>

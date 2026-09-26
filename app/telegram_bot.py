@@ -2,21 +2,28 @@
 Telegram bot logic (aiogram). Imported by app/main.py and run in
 **webhook mode** in production (single free Render web service, no
 separate Background Worker needed — see bot.py for local polling dev use).
+
+Registration flow:
+    /start -> Telegram native "Share my phone number" -> bot verifies and
+    stores the contact (PENDING registration) -> bot hands off to the Mini
+    App, which authenticates the user and collects/validates the FPL
+    Manager ID itself (see miniapp/index.html + app/routers/auth.py +
+    the existing /fpl/lookup + /fpl/confirm endpoints). The bot never asks
+    for the Manager ID in chat.
 """
 import logging
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     Message,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
     WebAppInfo,
 )
 
@@ -34,12 +41,6 @@ bot = Bot(token=settings.bot_token) if settings.bot_token else None
 dp = Dispatcher(storage=MemoryStorage())
 
 
-class Registration(StatesGroup):
-    waiting_for_contact = State()
-    waiting_for_manager_id = State()
-    waiting_for_confirmation = State()
-
-
 def _headers():
     return {"X-Bot-Secret": settings.bot_internal_secret}
 
@@ -54,45 +55,40 @@ async def _registration_status(telegram_id: int):
         return resp.json()
 
 
-async def _send_app_button(message: Message):
-    kb = InlineKeyboardMarkup(
+def _open_app_keyboard(label: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Open Mini App", web_app=WebAppInfo(url=settings.mini_app_url))]
+            [InlineKeyboardButton(text=label, web_app=WebAppInfo(url=settings.mini_app_url))]
         ]
     )
-    await message.answer("You're registered. Open the Mini App to view this week's competition:", reply_markup=kb)
 
 
-def _phone_authorization_url() -> str:
-    parts = urlsplit(settings.mini_app_url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query["authorize_phone"] = "1"
-    return urlunsplit(parts._replace(query=urlencode(query)))
+def _contact_request_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📱 Share my phone number", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 
 
 @dp.message(CommandStart())
-async def start(message: Message, state: FSMContext):
-    await state.set_state(Registration.waiting_for_contact)
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Continue with Telegram",
-                    web_app=WebAppInfo(url=_phone_authorization_url()),
-                )
-            ]
-        ]
-    )
+async def start(message: Message):
     await message.answer(
         "Welcome to the Weekly FPL Competition!\n\n"
-        "Continue to Telegram's secure phone-sharing confirmation.",
-        reply_markup=keyboard,
+        "To continue, please share your phone number.",
+        reply_markup=_contact_request_keyboard(),
     )
 
+
 @dp.message(F.contact)
-async def got_contact(message: Message, state: FSMContext):
+async def got_contact(message: Message):
+    # Telegram lets a user forward someone else's contact card; only accept
+    # a contact that matches the sender, so we never store a phone number
+    # for anyone other than the person who tapped the share button.
     if message.contact.user_id != message.from_user.id:
-        await message.answer("Please use the Share my phone number button to share your own number.")
+        await message.answer(
+            "Please use the Share my phone number button to share your own number.",
+        )
         return
 
     async with httpx.AsyncClient() as client:
@@ -107,103 +103,49 @@ async def got_contact(message: Message, state: FSMContext):
         )
         resp.raise_for_status()
 
+    await message.answer(
+        "Thanks! Your phone number has been verified.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
     try:
         registration = await _registration_status(message.from_user.id)
     except httpx.HTTPError:
         logger.exception("Could not check Telegram registration after contact sharing")
-        await message.answer("Your phone number was saved, but registration status could not be checked. Please send /start to continue.")
+        await message.answer(
+            "Your phone number was saved, but registration status could not be "
+            "checked. Please send /start to continue."
+        )
         return
 
     if registration["team_registered"]:
-        await state.clear()
-        await message.answer("Your phone number is confirmed.")
-        await _send_app_button(message)
-        return
-
-    await state.set_state(Registration.waiting_for_manager_id)
-    await message.answer(
-        "Thanks! Now enter your FPL Manager ID.\n"
-        "You can find this in the URL of your FPL points page, e.g. "
-        "fantasy.premierleague.com/entry/<b>7410729</b>/event/6",
-        parse_mode="HTML",
-    )
-
-
-@dp.message(Registration.waiting_for_manager_id, F.text & ~F.text.startswith("/"))
-async def got_manager_id(message: Message, state: FSMContext):
-    manager_id = message.text.strip()
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{BACKEND_URL}/fpl/lookup", json={"manager_id": manager_id})
-
-    if resp.status_code == 404:
-        await message.answer("No FPL manager found with that ID. Please try again.")
-        return
-    resp.raise_for_status()
-    info = resp.json()
-
-    await state.update_data(manager_id=manager_id)
-    await state.set_state(Registration.waiting_for_confirmation)
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Yes, that's my team", callback_data="confirm_team"),
-                InlineKeyboardButton(text="❌ No, try again", callback_data="retry_team"),
-            ]
-        ]
-    )
-    await message.answer(
-        f"<b>FPL Team:</b> {info['team_name']}\n"
-        f"<b>Manager:</b> {info['manager_name']}\n"
-        f"<b>Manager ID:</b> {info['manager_id']}\n\n"
-        "Is this your team?",
-        reply_markup=kb,
-        parse_mode="HTML",
-    )
-
-
-@dp.callback_query(F.data == "retry_team")
-async def retry_team(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(Registration.waiting_for_manager_id)
-    await callback.message.answer("No problem — enter your FPL Manager ID again.")
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "confirm_team")
-async def confirm_team(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    manager_id = data.get("manager_id")
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{BACKEND_URL}/internal/fpl-confirm",
-            headers=_headers(),
-            json={"telegram_id": str(callback.from_user.id), "manager_id": manager_id},
+        await message.answer(
+            "You're already registered.",
+            reply_markup=_open_app_keyboard("Open Mini App"),
         )
-
-    if resp.status_code == 409:
-        await callback.message.answer(
-            "That FPL Manager ID is already registered to another account. "
-            "Contact support if you believe this is a mistake."
-        )
-        await callback.answer()
         return
-    resp.raise_for_status()
 
-    await state.clear()
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Open Mini App", web_app=WebAppInfo(url=settings.mini_app_url))]
-        ]
+    # Manager ID collection now happens inside the Mini App itself.
+    await message.answer(
+        "Continue registration in the Mini App to link your FPL Manager ID.",
+        reply_markup=_open_app_keyboard("Complete Registration"),
     )
-    await callback.message.answer(
-        "You're all set! Open the Mini App to fund your wallet and join this "
-        "week's competition.",
-        reply_markup=kb,
-    )
-    await callback.answer()
 
 
 @dp.message(F.text == "/app")
-async def open_app(message: Message, state: FSMContext):
-    await start(message, state)
+async def open_app(message: Message):
+    try:
+        registration = await _registration_status(message.from_user.id)
+    except httpx.HTTPError:
+        registration = None
+
+    if registration and registration["team_registered"]:
+        await message.answer(
+            "Open the Mini App:",
+            reply_markup=_open_app_keyboard("Open Mini App"),
+        )
+        return
+
+    # No verified phone/team on record yet (or the status check failed) —
+    # run the normal /start flow instead of assuming they're registered.
+    await start(message)

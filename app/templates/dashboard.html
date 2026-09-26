@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Overview — FPL Platform</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --pitch: #0F3D2E;
+      --pitch-light: #1B5E42;
+      --gold: #E8B74B;
+      --cream: #F7F3E8;
+      --ink: #10231C;
+      --danger: #C24C3B;
+      --line: #D8D2C2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--cream);
+      color: var(--ink);
+    }
+    header {
+      background: var(--pitch);
+      color: var(--cream);
+      padding: 20px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    header h1 { margin: 0; font-size: 1.1rem; letter-spacing: 0.01em; }
+    header a { color: var(--gold); text-decoration: none; font-size: 0.85rem; }
+    main { max-width: 960px; margin: 0 auto; padding: 28px; }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      margin-bottom: 32px;
+    }
+    .stat {
+      background: white;
+      padding: 18px;
+    }
+    .stat .label { font-size: 0.78rem; color: #6B6355; margin-bottom: 6px; }
+    .stat .value { font-size: 1.6rem; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .stat.alert .value { color: var(--danger); }
+    .stat.highlight { background: var(--pitch); }
+    .stat.highlight .label { color: #B9D4C6; }
+    .stat.highlight .value { color: var(--gold); }
+    h2 { font-size: 0.95rem; text-transform: none; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    th { color: #6B6355; font-weight: 500; }
+    .status-pending { color: var(--gold); font-weight: 600; }
+    .status-approved { color: var(--pitch-light); font-weight: 600; }
+    .status-rejected { color: var(--danger); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FPL Platform — Overview</h1>
+    <a href="/admin">Full admin panel →</a>
+  </header>
+  <main>
+    <div class="stat-grid">
+      <div class="stat highlight">
+        <div class="label">Current gameweek</div>
+        <div class="value">{{ "GW " ~ current_gw.gw_number if current_gw else "None open" }}</div>
+      </div>
+      <div class="stat highlight">
+        <div class="label">Participants</div>
+        <div class="value">{{ participants }}</div>
+      </div>
+      <div class="stat highlight">
+        <div class="label">Prize pool</div>
+        <div class="value">{{ "%.0f"|format(prize_pool) }} ETB</div>
+      </div>
+      <div class="stat">
+        <div class="label">Pending deposits</div>
+        <div class="value">{{ pending_deposits }}</div>
+      </div>
+      <div class="stat">
+        <div class="label">Pending deposit amount</div>
+        <div class="value">{{ "%.0f"|format(pending_deposit_amount) }} ETB</div>
+      </div>
+      <div class="stat">
+        <div class="label">Pending withdrawals</div>
+        <div class="value">{{ pending_withdrawals }}</div>
+      </div>
+      <div class="stat">
+        <div class="label">Completed payouts</div>
+        <div class="value">{{ "%.0f"|format(completed_payout_amount) }} ETB</div>
+      </div>
+      <div class="stat {% if open_fraud_alerts > 0 %}alert{% endif %}">
+        <div class="label">Open fraud alerts</div>
+        <div class="value">{{ open_fraud_alerts }}</div>
+      </div>
+    </div>
+
+    <h2>Recent deposit requests</h2>
+    <table>
+      <thead>
+        <tr><th>Method</th><th>Amount</th><th>Transaction ID</th><th>Status</th><th>Submitted</th></tr>
+      </thead>
+      <tbody>
+        {% for d in recent_deposits %}
+        <tr>
+          <td>{{ d.method.value }}</td>
+          <td>{{ "%.0f"|format(d.amount) }} ETB</td>
+          <td>{{ d.transaction_id }}</td>
+          <td class="status-{{ d.status.value }}">{{ d.status.value }}</td>
+          <td>{{ d.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">No deposit requests yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

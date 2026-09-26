@@ -1,0 +1,58 @@
+# Render "Blueprint" — deploys the whole app (API + admin panel + Mini App
+# static files + Telegram bot webhook) as ONE free web service, plus a
+# free Postgres database, from a single "New +" -> "Blueprint" on Render
+# pointed at this repo. See README.md "Deploying to Render (free)".
+#
+# Free-tier reality check (accurate as of writing — verify current limits
+# on Render's pricing page before relying on this for anything beyond
+# testing):
+#   - Free web services spin down after ~15 min idle; the next request
+#     eats a ~30-60s cold start. Fine for testing, not for a live launch.
+#   - Free Postgres databases expire ~30 days after creation. Fine for a
+#     test run; re-provision (or upgrade) before that if you need longer.
+#   - There is no free Background Worker, which is why the bot runs in
+#     webhook mode inside the web service instead of a separate worker.
+
+databases:
+  - name: fpl-platform-db
+    plan: free
+    databaseName: fpl_platform
+    user: fpl_user
+
+services:
+  - type: web
+    name: fpl-platform
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python init_db.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fpl-platform-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
+      - key: BOT_INTERNAL_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@example.com
+      - key: ADMIN_PASSWORD
+        sync: false        # set this yourself in the Render dashboard — don't commit a real password
+      - key: TELEBIRR_RECEIVER_NUMBER
+        value: "0961242949"
+      - key: CBE_ACCOUNT_NUMBER
+        value: "1000477935471"
+      - key: ENFORCE_UNIQUE_DEPOSIT_TXN_ID
+        value: "false"
+      - key: PLATFORM_LIVE
+        value: "false"
+      - key: BOT_TOKEN
+        sync: false        # set this yourself — get it from @BotFather
+      - key: PUBLIC_BASE_URL
+        sync: false        # set AFTER first deploy, to https://<service>.onrender.com, then redeploy
+      - key: MINI_APP_URL
+        sync: false        # set to https://<service>.onrender.com/miniapp/ after first deploy
+      # BACKEND_INTERNAL_URL: not set — auto-derived from Render's $PORT at runtime.

@@ -1,0 +1,188 @@
+:root {
+  --pitch: #0F3D2E;
+  --pitch-light: #1B5E42;
+  --gold: #E8B74B;
+  --cream: #F7F3E8;
+  --ink: #10231C;
+  --danger: #C24C3B;
+  --line: #D8D2C2;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+h2 {
+  font-family: "Sora", sans-serif;
+  font-weight: 600;
+  font-size: 1rem;
+  margin: 0 0 10px;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px 16px 88px;
+}
+
+.screen[hidden] { display: none; }
+
+/* --- Scoreboard hero (the one bold element) --- */
+.scoreboard {
+  background: var(--pitch);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.scoreboard-row {
+  display: flex;
+}
+.scoreboard-row--gold { background: rgba(232, 183, 75, 0.12); }
+.scoreboard-cell {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+.scoreboard-cell:last-child { border-right: none; }
+.cell-label {
+  font-size: 0.72rem;
+  color: #B9D4C6;
+}
+.cell-value {
+  font-family: "Sora", sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.balance-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 4px 24px;
+}
+.balance-hero .cell-label { color: #6B6355; }
+.balance-hero .cell-value--big {
+  color: var(--pitch);
+  font-size: 2.2rem;
+}
+
+/* --- Generic content blocks (not the SaaS-card kit: flat, divided by rules) --- */
+.block {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.block:first-of-type { border-top: none; }
+
+.muted { color: #6B6355; font-size: 0.88rem; margin: 4px 0; }
+.muted.small { font-size: 0.76rem; }
+
+.btn {
+  width: 100%;
+  padding: 13px;
+  border-radius: 8px;
+  border: none;
+  font-family: "Sora", sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--pitch);
+  color: var(--gold);
+}
+.btn-primary:active { background: var(--pitch-light); }
+.btn-primary:disabled { opacity: 0.5; }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  color: #6B6355;
+}
+.field input, .field select {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: white;
+  color: var(--ink);
+}
+
+/* --- Lists: plain rows with dividers, like a scoreboard/ledger, not cards --- */
+.list { display: flex; flex-direction: column; }
+.list-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.list-row:last-child { border-bottom: none; }
+.list-row.me { background: rgba(232, 183, 75, 0.15); font-weight: 600; }
+.list-row .rank {
+  font-family: "Sora", sans-serif;
+  font-variant-numeric: tabular-nums;
+  width: 28px;
+  color: #6B6355;
+}
+.list-row .name { flex: 1; padding: 0 8px; }
+.list-row .points { font-variant-numeric: tabular-nums; }
+
+/* --- Bottom tab bar --- */
+#tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: white;
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.tab {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 12px 4px;
+  font-size: 0.76rem;
+  color: #6B6355;
+  font-family: -apple-system, sans-serif;
+}
+.tab.active { color: var(--pitch); font-weight: 600; }
+
+.toast {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 16px;
+  right: 16px;
+  background: var(--ink);
+  color: var(--cream);
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  z-index: 999;
+}
+
+@media (prefers-color-scheme: dark) {
+  html, body { background: #0B1712; color: var(--cream); }
+  .field input, .field select { background: #16281F; color: var(--cream); border-color: #2A4638; }
+  #tabbar { background: #0F1E17; border-color: #2A4638; }
+  .block { border-color: #2A4638; }
+  .list-row { border-color: #2A4638; }
+}

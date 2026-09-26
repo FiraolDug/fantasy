@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Weekly FPL Competition</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="toast" class="toast" hidden></div>
+
+<main id="app">
+
+  <!-- HOME -->
+  <section class="screen" id="screen-home" data-screen>
+    <div class="scoreboard">
+      <div class="scoreboard-row">
+        <div class="scoreboard-cell">
+          <span class="cell-label">Wallet</span>
+          <span class="cell-value" id="home-balance">—</span>
+        </div>
+        <div class="scoreboard-cell">
+          <span class="cell-label">Your points</span>
+          <span class="cell-value" id="home-points">—</span>
+        </div>
+      </div>
+      <div class="scoreboard-row scoreboard-row--gold">
+        <div class="scoreboard-cell">
+          <span class="cell-label">Prize pool</span>
+          <span class="cell-value" id="home-pool">—</span>
+        </div>
+        <div class="scoreboard-cell">
+          <span class="cell-label">Entrants</span>
+          <span class="cell-value" id="home-entrants">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2 id="home-gw-title">Gameweek</h2>
+      <p class="muted" id="home-gw-deadline">Loading…</p>
+      <p class="muted" id="home-gw-status"></p>
+      <button class="btn btn-primary" id="join-btn">Join gameweek</button>
+    </div>
+  </section>
+
+  <!-- GAMES -->
+  <section class="screen" id="screen-games" data-screen hidden>
+    <h2>This week</h2>
+    <div id="games-card" class="block">Loading…</div>
+  </section>
+
+  <!-- LEADERBOARD -->
+  <section class="screen" id="screen-leaderboard" data-screen hidden>
+    <h2>Leaderboard</h2>
+    <div id="leaderboard-list" class="list"></div>
+  </section>
+
+  <!-- WALLET -->
+  <section class="screen" id="screen-wallet" data-screen hidden>
+    <div class="balance-hero">
+      <span class="cell-label">Available balance</span>
+      <span class="cell-value cell-value--big" id="wallet-balance">—</span>
+    </div>
+
+    <div class="block">
+      <h2>Deposit</h2>
+      <p class="muted" id="deposit-instructions">Loading instructions…</p>
+      <label class="field">
+        <span>Method</span>
+        <select id="deposit-method">
+          <option value="telebirr">Telebirr</option>
+          <option value="cbe">CBE</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Amount (ETB)</span>
+        <input id="deposit-amount" type="number" min="1" inputmode="decimal" />
+      </label>
+      <label class="field">
+        <span>Transaction ID</span>
+        <input id="deposit-txn" type="text" placeholder="e.g. DIJ3USEE6B" />
+      </label>
+      <button class="btn btn-primary" id="deposit-submit">Submit for verification</button>
+      <p class="muted small">Your wallet is credited after an admin verifies the payment.</p>
+    </div>
+
+    <div class="block">
+      <h2>Recent deposits</h2>
+      <div id="deposit-history" class="list"></div>
+    </div>
+  </section>
+
+  <!-- PROFILE -->
+  <section class="screen" id="screen-profile" data-screen hidden>
+    <h2 id="profile-name">—</h2>
+    <div class="list">
+      <div class="list-row"><span>FPL Team</span><span id="profile-team">—</span></div>
+      <div class="list-row"><span>Manager ID</span><span id="profile-manager-id">—</span></div>
+      <div class="list-row"><span>Gameweeks played</span><span id="profile-gws">—</span></div>
+      <div class="list-row"><span>Best rank</span><span id="profile-best-rank">—</span></div>
+      <div class="list-row"><span>Total winnings</span><span id="profile-winnings">—</span></div>
+    </div>
+  </section>
+
+</main>
+
+<nav id="tabbar">
+  <button data-target="screen-home" class="tab active">Home</button>
+  <button data-target="screen-games" class="tab">Games</button>
+  <button data-target="screen-leaderboard" class="tab">Board</button>
+  <button data-target="screen-wallet" class="tab">Wallet</button>
+  <button data-target="screen-profile" class="tab">Profile</button>
+</nav>
+
+<script src="app.js"></script>
+</body>
+</html>

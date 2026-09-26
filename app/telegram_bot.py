@@ -67,29 +67,6 @@ async def _send_app_button(message: Message):
 
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
-    try:
-        registration = await _registration_status(message.from_user.id)
-    except httpx.HTTPError:
-        logger.exception("Could not check Telegram registration")
-        await message.answer("Registration is temporarily unavailable. Please try /start again shortly.")
-        return
-
-    if registration["phone_registered"] and registration["team_registered"]:
-        await state.clear()
-        await _send_app_button(message)
-        return
-
-    if registration["phone_registered"]:
-        await state.set_state(Registration.waiting_for_manager_id)
-        await message.answer(
-            "Your phone is registered. Now enter your FPL Manager ID.\n"
-            "You can find it in the URL of your FPL points page, e.g. "
-            "fantasy.premierleague.com/entry/<b>7410729</b>/event/6",
-            reply_markup=ReplyKeyboardRemove(),
-            parse_mode="HTML",
-        )
-        return
-
     await state.set_state(Registration.waiting_for_contact)
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="Share my phone number", request_contact=True)]],
@@ -120,6 +97,19 @@ async def got_contact(message: Message, state: FSMContext):
             },
         )
         resp.raise_for_status()
+
+    try:
+        registration = await _registration_status(message.from_user.id)
+    except httpx.HTTPError:
+        logger.exception("Could not check Telegram registration after contact sharing")
+        await message.answer("Your phone number was saved, but registration status could not be checked. Please send /start to continue.")
+        return
+
+    if registration["team_registered"]:
+        await state.clear()
+        await message.answer("Your phone number is confirmed.", reply_markup=ReplyKeyboardRemove())
+        await _send_app_button(message)
+        return
 
     await state.set_state(Registration.waiting_for_manager_id)
     await message.answer(

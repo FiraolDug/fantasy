@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Request
+import hmac
+
+from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -58,11 +60,31 @@ if settings.bot_token:
     @app.on_event("startup")
     async def _set_telegram_webhook():
         if settings.public_base_url:
+            if not settings.telegram_webhook_secret:
+                raise RuntimeError(
+                    "TELEGRAM_WEBHOOK_SECRET is required when PUBLIC_BASE_URL enables the Telegram webhook"
+                )
             webhook_url = f"{settings.public_base_url.rstrip('/')}/telegram/webhook"
-            await tg_bot.set_webhook(webhook_url, drop_pending_updates=False)
+            await tg_bot.set_webhook(
+                webhook_url,
+                secret_token=settings.telegram_webhook_secret,
+                drop_pending_updates=False,
+            )
 
     @app.post("/telegram/webhook")
-    async def telegram_webhook(request: Request):
+    async def telegram_webhook(
+        request: Request,
+        secret_token: str | None = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token"),
+    ):
+        if (
+            not settings.telegram_webhook_secret
+            or secret_token is None
+            or not hmac.compare_digest(secret_token, settings.telegram_webhook_secret)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Telegram webhook secret",
+            )
         data = await request.json()
         update = Update.model_validate(data, context={"bot": tg_bot})
         await tg_dp.feed_update(tg_bot, update)

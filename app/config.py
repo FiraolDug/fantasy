@@ -1,4 +1,5 @@
 import os
+import re
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     # --- Telegram ---
     bot_token: str = ""
     bot_internal_secret: str = "change_this_shared_secret"
+    telegram_webhook_secret: str = ""
     mini_app_url: str = "https://example.com/miniapp"
     # Base URL Telegram will POST updates to in webhook mode, e.g.
     # https://your-app.onrender.com — leave blank to disable webhook
@@ -53,6 +55,15 @@ class Settings(BaseSettings):
     # the same process/service (loopback). Leave blank to auto-derive from
     # Render's $PORT env var; only set this explicitly for non-Render setups.
     backend_internal_url: str = ""
+
+    @field_validator("telegram_webhook_secret")
+    @classmethod
+    def _validate_telegram_webhook_secret(cls, value: str) -> str:
+        if value and not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", value):
+            raise ValueError(
+                "TELEGRAM_WEBHOOK_SECRET must contain 1-256 letters, digits, underscores, or hyphens"
+            )
+        return value
 
     @field_validator("backend_internal_url")
     @classmethod

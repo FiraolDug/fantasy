@@ -4,6 +4,7 @@ Telegram bot logic (aiogram). Imported by app/main.py and run in
 separate Background Worker needed — see bot.py for local polling dev use).
 """
 import logging
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from aiogram import Bot, Dispatcher, F
@@ -15,10 +16,7 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
     Message,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     WebAppInfo,
 )
 
@@ -65,30 +63,33 @@ async def _send_app_button(message: Message):
     await message.answer("You're registered. Open the Mini App to view this week's competition:", reply_markup=kb)
 
 
+def _phone_authorization_url() -> str:
+    parts = urlsplit(settings.mini_app_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["authorize_phone"] = "1"
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
     await state.set_state(Registration.waiting_for_contact)
-
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
             [
-                KeyboardButton(
-                    text="📱 Share my phone number",
-                    request_contact=True,
+                InlineKeyboardButton(
+                    text="Continue with Telegram",
+                    web_app=WebAppInfo(url=_phone_authorization_url()),
                 )
             ]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True,
+        ]
     )
-
     await message.answer(
         "Welcome to the Weekly FPL Competition!\n\n"
-        "To continue, please share your phone number using the button below.",
+        "Continue to Telegram's secure phone-sharing confirmation.",
         reply_markup=keyboard,
     )
 
-@dp.message(Registration.waiting_for_contact, F.contact)
+@dp.message(F.contact)
 async def got_contact(message: Message, state: FSMContext):
     if message.contact.user_id != message.from_user.id:
         await message.answer("Please use the Share my phone number button to share your own number.")
@@ -115,7 +116,7 @@ async def got_contact(message: Message, state: FSMContext):
 
     if registration["team_registered"]:
         await state.clear()
-        await message.answer("Your phone number is confirmed.", reply_markup=ReplyKeyboardRemove())
+        await message.answer("Your phone number is confirmed.")
         await _send_app_button(message)
         return
 
@@ -124,7 +125,6 @@ async def got_contact(message: Message, state: FSMContext):
         "Thanks! Now enter your FPL Manager ID.\n"
         "You can find this in the URL of your FPL points page, e.g. "
         "fantasy.premierleague.com/entry/<b>7410729</b>/event/6",
-        reply_markup=ReplyKeyboardRemove(),
         parse_mode="HTML",
     )
 

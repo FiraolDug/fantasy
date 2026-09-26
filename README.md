@@ -60,18 +60,29 @@ local testing put it behind a tunnel (ngrok/Cloudflare Tunnel) or deploy
 - Mini App (dev only): http://localhost:8000/miniapp/
 
 ### End-to-end flow
-1. User opens the bot, taps **Start**, shares phone number, enters their FPL
-   Manager ID, confirms the team the bot shows them.
-2. Bot sends an **Open Mini App** button.
-3. Mini App authenticates itself using Telegram's signed `initData`
+1. User opens the bot and taps **Start**. The bot sends a **Continue with
+   Telegram** Mini App launch button. Telegram does not let bots force-open a
+   phone consent dialog directly from `/start`; the user must open the Mini App
+   and tap its contact-sharing action.
+2. The Mini App calls Telegram's official `Telegram.WebApp.requestContact()`
+   method, which displays Telegram's native consent UI. On approval Telegram
+   sends the user's contact as a bot update; the Mini App does not submit or
+   assert a phone number itself. The webhook checks Telegram's secret-token
+   header before processing updates. The user then returns to the bot chat.
+3. The bot accepts only a Telegram contact whose `contact.user_id` matches the
+   sender's Telegram ID, then stores the phone through the bot-only internal
+   registration endpoint. The bot asks for the FPL Manager ID and confirms the
+   team returned by FPL.
+4. After FPL confirmation, the bot sends an **Open Mini App** button.
+5. Mini App authenticates itself using Telegram's signed `initData`
    (`POST /auth/telegram-webapp`) — this is cryptographically verified
    server-side (`app/services/telegram_auth.py`), so a user can't spoof
    another user's `telegram_id`.
-4. In the Mini App: Home shows wallet balance + current gameweek + a Join
+6. In the Mini App: Home shows wallet balance + current gameweek + a Join
    button; Wallet shows the Telebirr/CBE deposit instructions and a form to
    submit a transaction ID; Games shows this week's details; Board shows
    the live leaderboard; Profile shows FPL team + stats.
-5. Admin verifies deposits/withdrawals and monitors everything from
+7. Admin verifies deposits/withdrawals and monitors everything from
    `/admin-ui/` (day to day) or `/admin` (raw record editing).
 
 ## Deploying to Render (free, for testing)
@@ -98,6 +109,9 @@ requires HTTPS for both bot webhooks and Mini Apps.
    committed to git):
    - `ADMIN_PASSWORD` — your real admin login password
    - `BOT_TOKEN` — from [@BotFather](https://t.me/BotFather)
+   - `TELEGRAM_WEBHOOK_SECRET` — a random 1-256 character secret using only
+     letters, digits, underscores, or hyphens. It authenticates Telegram's
+     webhook updates.
 4. Deploy once. Render gives you a URL like `https://fpl-platform-xyz.onrender.com`.
 5. Set two more env vars now that you know the URL, then **redeploy**:
    - `PUBLIC_BASE_URL` = `https://fpl-platform-xyz.onrender.com`

@@ -42,7 +42,7 @@ services:
       - key: ADMIN_EMAIL
         value: admin@example.com
       - key: ADMIN_PASSWORD
-        sync: false        # set this yourself in the Render dashboard — don't commit a real password
+        sync: false # set this yourself in the Render dashboard — don't commit a real password
       - key: TELEBIRR_RECEIVER_NUMBER
         value: "0961242949"
       - key: CBE_ACCOUNT_NUMBER
@@ -52,9 +52,11 @@ services:
       - key: PLATFORM_LIVE
         value: "false"
       - key: BOT_TOKEN
-        sync: false        # set this yourself — get it from @BotFather
+        sync: false # set this yourself — get it from @BotFather
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false # random 1-256 characters: A-Z, a-z, 0-9, _ or -
       - key: PUBLIC_BASE_URL
-        sync: false        # set AFTER first deploy, to https://<service>.onrender.com, then redeploy
+        sync: false # set AFTER first deploy, to https://<service>.onrender.com, then redeploy
       - key: MINI_APP_URL
-        sync: false        # set to https://<service>.onrender.com/miniapp/ after first deploy
+        sync: false # set to https://<service>.onrender.com/miniapp/ after first deploy
       # BACKEND_INTERNAL_URL: not set — auto-derived from Render's $PORT at runtime.

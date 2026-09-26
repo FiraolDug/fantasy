@@ -1123,11 +1123,27 @@
       "
     >
       <div>
-        <h1>Registration required</h1>
-        <p id="accessMessage">
-          Open this Mini App from the bot after sharing your phone number and
-          confirming your FPL Manager ID.
-        </p>
+        <div id="phoneAuthorization" hidden>
+          <h1>Share your phone with Telegram</h1>
+          <p id="phoneAuthorizationMessage">
+            Telegram will ask you to confirm sharing your number with this bot.
+          </p>
+          <button
+            class="btn primary"
+            id="requestPhoneButton"
+            style="margin-top: 16px"
+            onclick="requestTelegramContact()"
+          >
+            Continue to Telegram confirmation
+          </button>
+        </div>
+        <div id="accessRequired">
+          <h1>Registration required</h1>
+          <p id="accessMessage">
+            Open this Mini App from the bot after sharing your phone number and
+            confirming your FPL Manager ID.
+          </p>
+        </div>
       </div>
     </div>
 
@@ -1145,6 +1161,9 @@
       // ============================================================
       const API_BASE = ""; // same-origin: FastAPI serves this file at /miniapp/
       const tg = window.Telegram ? window.Telegram.WebApp : null;
+      const phoneAuthorizationMode =
+        new URLSearchParams(window.location.search).get("authorize_phone") ===
+        "1";
       if (tg) {
         tg.ready();
         tg.expand();
@@ -1180,11 +1199,34 @@
         return true;
       }
 
+      function requestTelegramContact() {
+        const button = document.getElementById("requestPhoneButton");
+        const message = document.getElementById("phoneAuthorizationMessage");
+        if (!tg || typeof tg.requestContact !== "function") {
+          message.textContent =
+            "Phone sharing requires a recent Telegram app. Update Telegram and open /start again.";
+          return;
+        }
+
+        button.disabled = true;
+        tg.requestContact((shared) => {
+          if (shared) {
+            message.textContent =
+              "Telegram sent your approved contact to the bot. Return to the bot chat to continue.";
+            button.hidden = true;
+          } else {
+            message.textContent =
+              "Phone sharing was cancelled. Tap the button to try again.";
+            button.disabled = false;
+          }
+        });
+      }
+
       // ============================================================
       // TELEGRAM IDENTITY — real, from Telegram's signed initData (verified
       // server-side on the /auth/telegram-webapp call above). Phone number
-      // isn't available via the Mini App API — it's captured once by the bot
-      // during /start and stored server-side, so we pull it from /users/me/profile.
+      // isn't part of initData — the user grants phone sharing with requestContact,
+      // and Telegram delivers the approved contact to the bot for storage.
       // ============================================================
       const tgUser = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {
         first_name: "there",
@@ -1899,6 +1941,17 @@
 
       (async function init() {
         const gate = document.getElementById("accessGate");
+        if (phoneAuthorizationMode) {
+          if (!tg || !tg.initData) {
+            document.getElementById("phoneAuthorizationMessage").textContent =
+              "Open this authorization page from the Telegram bot.";
+            document.getElementById("requestPhoneButton").hidden = true;
+          }
+          document.getElementById("accessRequired").hidden = true;
+          document.getElementById("phoneAuthorization").hidden = false;
+          gate.style.display = "grid";
+          return;
+        }
         try {
           await authenticate();
           await Promise.all([loadProfile(), loadWallet(), loadGameweek()]);

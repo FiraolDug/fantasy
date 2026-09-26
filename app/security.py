@@ -1,19 +1,25 @@
 from datetime import datetime, timedelta
 
+from bcrypt import checkpw, gensalt, hashpw
+
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt has a hard 72-byte input limit; truncate consistently on both
+# hash and verify so a long password doesn't silently behave differently
+# between the two calls.
+_MAX_BCRYPT_BYTES = 72
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return hashpw(password.encode("utf-8")[:_MAX_BCRYPT_BYTES], gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return checkpw(
+        plain_password.encode("utf-8")[:_MAX_BCRYPT_BYTES], hashed_password.encode("utf-8")
+    )
 
 
 def create_access_token(subject: str, role: str, expires_minutes: int | None = None) -> str:

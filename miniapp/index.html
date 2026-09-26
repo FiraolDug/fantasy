@@ -1,122 +1,979 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Weekly FPL Competition</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FPL Weekly — Fantasy League Ethiopia</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css" />
+<style>
+:root{
+  --bg:#f2f7f2;--card:#fff;--text:#1b2e1f;--muted:#5f6f63;
+  --green:#17a673;--green2:#0e7a54;--green-light:#e2f0e9;--green-soft:#d4efe3;
+  --line:#d8e4dc;--shadow:0 6px 22px rgba(23,50,30,.08);
+  --gold:#b8860b;--red:#c0473f;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:#dfe8e2;color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button,input{font:inherit}
+.app{width:min(480px,100%);min-height:100vh;margin:auto;background:var(--bg);padding-bottom:82px;position:relative}
+
+header{
+  position:sticky;top:0;z-index:10;
+  background:rgba(242,247,242,.94);
+  backdrop-filter:blur(14px);
+  padding:14px 16px 10px;
+  border-bottom:1px solid rgba(216,228,220,.7);
+}
+.head{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;gap:10px;align-items:center}
+.logo{width:39px;height:39px;border-radius:12px;background:var(--green);color:#fff;display:grid;place-items:center;font-weight:900}
+.brand b{font-size:16px}
+.brand small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.bell{position:relative;width:36px;height:36px;border-radius:11px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;font-size:16px;cursor:pointer}
+.bell .dot{position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:99px;background:#e0553f}
+
+main{padding:12px 16px}
+.screen{display:none}
+.screen.active{display:block}
+
+h1{font-size:24px;margin:5px 0 7px;font-weight:800}
+h2{font-size:18px;margin:0 0 6px;font-weight:800}
+h3{font-size:14px;margin:0 0 12px;font-weight:800}
+p{font-size:13px;line-height:1.5;color:var(--muted);margin:0}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:var(--shadow)}
+.hero{background:linear-gradient(135deg,var(--green),var(--green2));color:#fff;border:0}
+.hero p{color:rgba(255,255,255,.9)}
+.eyebrow{font-size:11px;font-weight:700;opacity:.85}
+
+.btn{width:100%;border:0;border-radius:12px;padding:13px 15px;font-weight:700;cursor:pointer;transition:transform .1s ease, opacity .15s ease}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--green);color:#fff}
+.btn.white{background:#fff;color:var(--green2)}
+.btn.secondary{background:#e2ece6;color:var(--text)}
+.btn.danger{background:#fff0f0;color:#b23b3b}
+
+.stack{display:grid;gap:9px}
+.center{text-align:center}
+.muted{color:var(--muted)}
+
+.input{width:100%;border:1px solid var(--line);border-radius:12px;padding:14px;outline:none;background:#fff}
+.input:focus{border-color:var(--green)}
+.input.err{border-color:var(--red)}
+.err-msg{color:var(--red);font-size:11px;margin-top:6px;display:none}
+.label{font-size:12px;font-weight:700;display:block;margin:0 0 7px;color:var(--text)}
+.field{margin:14px 0}
+.hint{font-size:11px;color:var(--muted);margin-top:6px}
+
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row-main{flex:1;min-width:0}
+.row-main b{font-size:13px}
+.row-main span{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+
+.avatar{width:40px;height:40px;border-radius:12px;flex-shrink:0;background:var(--green-light);display:grid;place-items:center;font-weight:800;color:var(--green2);font-size:13px}
+.avatar.gold{background:#fbf1d9;color:var(--gold)}
+.avatar.sm{width:32px;height:32px;font-size:14px;border-radius:10px}
+
+.badge{display:inline-flex;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700}
+.live{background:#e5f8ef;color:#0e7a54}
+.pending{background:#fff4dc;color:#9b6500}
+.final{background:#e6f2e9;color:#1f6d4b}
+
+.alert{background:#fff7e5;color:#835d17;border-radius:12px;padding:12px;font-size:11.5px;line-height:1.45;margin-bottom:12px}
+
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.info{background:#f4faf7;border-radius:12px;padding:12px}
+.info small{display:block;color:var(--muted);font-size:11px}
+.info b{display:block;margin-top:4px;font-size:15px}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stats.four{grid-template-columns:repeat(2,1fr)}
+.stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 8px;text-align:center}
+.stat b{display:block;font-size:17px}
+.stat span{font-size:10.5px;color:var(--muted)}
+
+.progress{height:7px;background:#deeae2;border-radius:99px;overflow:hidden;margin-top:12px}
+.progress i{display:block;height:100%;background:var(--green);border-radius:99px;transition:width .4s ease}
+
+.section{display:flex;justify-content:space-between;align-items:center;margin:22px 2px 10px}
+.section b{font-size:15px}
+.section button{border:0;background:none;color:var(--green2);font-size:12px;font-weight:700}
+
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(480px,100%);height:72px;background:rgba(255,255,255,.97);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom);z-index:30}
+.nav button{border:0;background:none;color:#7b8a80;font-size:10.5px;font-weight:700}
+.nav button.active{color:var(--green2)}
+.nav span{display:block;font-size:19px;margin-bottom:4px}
+
+.back{border:0;background:none;padding:4px 0;color:var(--green2);font-weight:700;margin-bottom:14px}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.43);display:none;align-items:flex-end;z-index:50}
+.modal.show{display:flex}
+.sheet{background:#fff;width:min(480px,100%);margin:auto;border-radius:20px 20px 0 0;padding:17px 16px calc(18px + env(safe-area-inset-bottom));max-height:82vh;overflow:auto}
+.handle{height:4px;width:42px;background:#d0ded5;border-radius:99px;margin:0 auto 18px}
+
+.amount{text-align:center;font-size:32px;font-weight:900;margin:16px 0}
+
+.toast{position:fixed;z-index:70;left:50%;bottom:90px;transform:translate(-50%,15px);background:#17212b;color:#fff;border-radius:12px;padding:11px 15px;font-size:12px;max-width:90%;text-align:center;opacity:0;transition:.2s}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+.registered-tag{display:flex;align-items:center;gap:8px;background:var(--green-light);color:var(--green2);border-radius:12px;padding:10px 12px;font-size:12px;font-weight:700;margin-bottom:12px}
+.registered-tag span{font-size:15px}
+
+.notif-item{padding:12px 0;border-bottom:1px solid var(--line)}
+.notif-item:last-child{border-bottom:0}
+.notif-item b{font-size:12.5px;display:block;margin-bottom:3px}
+.notif-item p{font-size:12px}
+.notif-item small{color:var(--muted);font-size:10.5px;display:block;margin-top:4px}
+
+.steps-track{display:flex;align-items:center;gap:6px;margin-bottom:16px}
+.steps-track i{flex:1;height:4px;border-radius:99px;background:#deeae2}
+.steps-track i.done{background:var(--green)}
+
+/* Ad slot — reserved placement for future sponsored banners */
+.ad-slot{
+  border:1px dashed #b9ccc0;border-radius:14px;background:#eaf3ee;
+  padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;
+}
+.ad-slot .ad-icon{width:38px;height:38px;border-radius:10px;background:#dfeae3;color:#5f6f63;display:grid;place-items:center;font-size:15px;flex-shrink:0}
+.ad-slot .ad-text b{display:block;font-size:11.5px;color:var(--muted);font-weight:800;letter-spacing:.2px}
+.ad-slot .ad-text span{display:block;font-size:11px;color:#8a9990;margin-top:2px}
+
+.pay-method{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  border:1px solid var(--line);border-radius:13px;padding:13px;background:#fff;
+  cursor:pointer;margin-bottom:9px;
+}
+.pay-method:active{transform:scale(.99)}
+.pay-method .pm-icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-weight:900;color:#fff;font-size:12px;flex-shrink:0}
+.pay-method .pm-icon.telebirr{background:#5a2d82}
+.pay-method .pm-icon.cbe{background:#8b2e2e}
+.pay-method b{font-size:13px;display:block}
+.pay-method span{font-size:11px;color:var(--muted)}
+
+.copy-row{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:#f4faf7;border-radius:12px;padding:12px;margin:10px 0;
+}
+.copy-row .cr-label{font-size:11px;color:var(--muted);display:block}
+.copy-row .cr-value{font-size:15px;font-weight:800;letter-spacing:.3px;margin-top:2px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.copy-row button{border:0;background:var(--green-light);color:var(--green2);font-weight:700;font-size:11.5px;padding:8px 12px;border-radius:9px;cursor:pointer;flex-shrink:0}
+</style>
 </head>
 <body>
-
-<div id="toast" class="toast" hidden></div>
-
-<main id="app">
-
-  <!-- HOME -->
-  <section class="screen" id="screen-home" data-screen>
-    <div class="scoreboard">
-      <div class="scoreboard-row">
-        <div class="scoreboard-cell">
-          <span class="cell-label">Wallet</span>
-          <span class="cell-value" id="home-balance">—</span>
-        </div>
-        <div class="scoreboard-cell">
-          <span class="cell-label">Your points</span>
-          <span class="cell-value" id="home-points">—</span>
-        </div>
-      </div>
-      <div class="scoreboard-row scoreboard-row--gold">
-        <div class="scoreboard-cell">
-          <span class="cell-label">Prize pool</span>
-          <span class="cell-value" id="home-pool">—</span>
-        </div>
-        <div class="scoreboard-cell">
-          <span class="cell-label">Entrants</span>
-          <span class="cell-value" id="home-entrants">—</span>
-        </div>
-      </div>
+<div class="app">
+<header>
+  <div class="head">
+    <div class="brand">
+      <div class="logo">F</div>
+      <div><b>FPL Weekly</b><small>Fantasy League Ethiopia</small></div>
     </div>
+    <button class="bell" onclick="openNotifications()" aria-label="Notifications">🔔<span class="dot" id="bellDot"></span></button>
+  </div>
+</header>
 
-    <div class="block">
-      <h2 id="home-gw-title">Gameweek</h2>
-      <p class="muted" id="home-gw-deadline">Loading…</p>
-      <p class="muted" id="home-gw-status"></p>
-      <button class="btn btn-primary" id="join-btn">Join gameweek</button>
+<main>
+<!-- HOME -->
+<section id="home" class="screen active">
+  <div class="card hero">
+    <div class="eyebrow">Welcome back, <span id="heroName">Firaol</span></div>
+    <h1>Gameweek 6 is open</h1>
+    <p>Join this week's competition using your registered FPL team.</p>
+    <div style="height:14px"></div>
+    <button class="btn white" onclick="go('games')">View Gameweek 6</button>
+  </div>
+
+  <div class="ad-slot">
+    <div class="ad-icon">Ad</div>
+    <div class="ad-text"><b>Advertisement space</b><span>Reserved 320×100 banner slot</span></div>
+  </div>
+
+  <div class="section"><b>Your current status</b></div>
+  <div class="stats">
+    <div class="stat"><b id="homeLivePoints">61</b><span>Live points</span></div>
+    <div class="stat"><b id="homePosition">#37</b><span>Position</span></div>
+    <div class="stat"><b id="homeWallet">1,250</b><span>Wallet ETB</span></div>
+  </div>
+  <div class="section"><b>Current Gameweek</b><button onclick="go('games')">Open</button></div>
+  <div class="card">
+    <span class="badge live" id="homeStatusBadge">Registration open</span>
+    <h2 style="margin-top:10px">Gameweek 6</h2>
+    <div class="info-grid" id="homeGameweekInfo">
+      <div class="info"><small>Entry fee</small><b>200 ETB</b></div>
+      <div class="info"><small>Participants</small><b id="homeParticipants">423</b></div>
+      <div class="info"><small>Prize pool</small><b id="homePrizePool">84,600 ETB</b></div>
+      <div class="info"><small>Deadline</small><b>Sat 18:00</b></div>
     </div>
-  </section>
-
-  <!-- GAMES -->
-  <section class="screen" id="screen-games" data-screen hidden>
-    <h2>This week</h2>
-    <div id="games-card" class="block">Loading…</div>
-  </section>
-
-  <!-- LEADERBOARD -->
-  <section class="screen" id="screen-leaderboard" data-screen hidden>
-    <h2>Leaderboard</h2>
-    <div id="leaderboard-list" class="list"></div>
-  </section>
-
-  <!-- WALLET -->
-  <section class="screen" id="screen-wallet" data-screen hidden>
-    <div class="balance-hero">
-      <span class="cell-label">Available balance</span>
-      <span class="cell-value cell-value--big" id="wallet-balance">—</span>
+    <div class="progress"><i id="homeProgressBar"></i></div>
+    <p style="font-size:10.5px;margin-top:5px" id="homeParticipantCount">423 participants registered</p>
+  </div>
+  <div class="section"><b>My FPL Team</b><button onclick="go('profile')">Profile</button></div>
+  <div class="card">
+    <div class="row" id="homeTeamRow">
+      <div class="avatar">—</div>
+      <div class="row-main"><b>No team registered</b><span>Join a gameweek to register your FPL team</span></div>
     </div>
+  </div>
+</section>
 
-    <div class="block">
-      <h2>Deposit</h2>
-      <p class="muted" id="deposit-instructions">Loading instructions…</p>
-      <label class="field">
-        <span>Method</span>
-        <select id="deposit-method">
-          <option value="telebirr">Telebirr</option>
-          <option value="cbe">CBE</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Amount (ETB)</span>
-        <input id="deposit-amount" type="number" min="1" inputmode="decimal" />
-      </label>
-      <label class="field">
-        <span>Transaction ID</span>
-        <input id="deposit-txn" type="text" placeholder="e.g. DIJ3USEE6B" />
-      </label>
-      <button class="btn btn-primary" id="deposit-submit">Submit for verification</button>
-      <p class="muted small">Your wallet is credited after an admin verifies the payment.</p>
+<!-- GAMES -->
+<section id="games" class="screen">
+  <button class="back" onclick="go('home')">‹ Home</button>
+  <span class="badge live" id="gamesStatusBadge">Registration open</span>
+  <h1>Gameweek 6</h1>
+  <p>Entries close at the deadline below. Your score is pulled automatically from official FPL data once the gameweek starts.</p>
+  <div class="card" style="margin-top:14px">
+    <div class="info-grid" id="gamesGameweekInfo">
+      <div class="info"><small>Entry fee</small><b>200 ETB</b></div>
+      <div class="info"><small>Participants</small><b id="gamesParticipants">423</b></div>
+      <div class="info"><small>Prize pool</small><b id="gamesPrizePool">84,600 ETB</b></div>
+      <div class="info"><small>Deadline</small><b>Sat 18:00</b></div>
     </div>
-
-    <div class="block">
-      <h2>Recent deposits</h2>
-      <div id="deposit-history" class="list"></div>
+  </div>
+  <div class="card">
+    <h3>Prize distribution</h3>
+    <div class="row">
+      <div class="avatar gold">1</div>
+      <div class="row-main"><b>1st Place</b></div>
+      <b id="firstPrize">33,800 ETB</b>
     </div>
-  </section>
-
-  <!-- PROFILE -->
-  <section class="screen" id="screen-profile" data-screen hidden>
-    <h2 id="profile-name">—</h2>
-    <div class="list">
-      <div class="list-row"><span>FPL Team</span><span id="profile-team">—</span></div>
-      <div class="list-row"><span>Manager ID</span><span id="profile-manager-id">—</span></div>
-      <div class="list-row"><span>Gameweeks played</span><span id="profile-gws">—</span></div>
-      <div class="list-row"><span>Best rank</span><span id="profile-best-rank">—</span></div>
-      <div class="list-row"><span>Total winnings</span><span id="profile-winnings">—</span></div>
+    <div class="row">
+      <div class="avatar">2</div>
+      <div class="row-main"><b>2nd Place</b></div>
+      <b id="secondPrize">25,300 ETB</b>
     </div>
-  </section>
+    <div class="row">
+      <div class="avatar">3</div>
+      <div class="row-main"><b>3rd Place</b></div>
+      <b id="thirdPrize">16,900 ETB</b>
+    </div>
+  </div>
+  <div class="alert">Your FPL score is collected automatically from official FPL data. You cannot manually enter or change points.</div>
+  <div id="gamesRegisteredNote" class="registered-tag" style="display:none">
+    <span>✓</span> Playing as <b id="gamesRegisteredTeam"></b> — no need to re-enter your Manager ID
+  </div>
+  <button class="btn primary" id="joinBtn" onclick="startEntry()">Join Gameweek · 200 ETB</button>
+  <button class="btn secondary" style="margin-top:9px" onclick="go('history')">View gameweek history</button>
+</section>
 
+<!-- ONE-TIME REGISTRATION: MANAGER ID ONLY (Telegram already provides name/phone) -->
+<section id="verify" class="screen">
+  <button class="back" onclick="go('games')">‹ Gameweek 6</button>
+  <span class="badge pending">One-time setup</span>
+  <h1>Link your FPL team</h1>
+  <p>Enter your official FPL Manager ID. We'll retrieve your team automatically — you won't be asked for it again.</p>
+  <div class="card" style="margin-top:15px">
+    <div class="row" style="border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:4px">
+      <div class="avatar" id="verifyTgAvatar">F</div>
+      <div class="row-main"><b id="verifyTgName">Firaol Dugasaa</b><span id="verifyTgMeta">@firaol · 0961242949</span></div>
+      <span>✓</span>
+    </div>
+    <div class="field" style="margin-top:12px">
+      <label class="label">FPL Manager ID</label>
+      <input id="managerId" class="input" inputmode="numeric" placeholder="e.g. 123456">
+      <div class="err-msg" id="managerIdErr">Enter a valid Manager ID to continue.</div>
+      <p class="hint">Find this in the URL of your team page on the official Fantasy Premier League site.</p>
+    </div>
+    <button class="btn primary" onclick="verifyFPL()">Find my team</button>
+  </div>
+</section>
+
+<!-- CONFIRM TEAM (one-time) -->
+<section id="confirm" class="screen">
+  <button class="back" onclick="go('verify')">‹ Manager ID</button>
+  <span class="badge final">FPL verified</span>
+  <h1>Is this your team?</h1>
+  <p>Review the details retrieved from FPL. Once confirmed, this team is saved to your account for every future gameweek — you won't enter your Manager ID again.</p>
+  <div class="card" style="margin-top:15px;text-align:center">
+    <div class="avatar" style="margin:auto;width:60px;height:60px;font-size:16px" id="confirmAvatar">FD</div>
+    <h2 style="margin-top:12px" id="confirmTeamName">Buna Bandits</h2>
+    <p id="confirmManagerName">Firaol Dugasaa</p>
+    <div class="info-grid" style="margin-top:16px;text-align:left">
+      <div class="info"><small>Manager ID</small><b id="confirmManagerId">123456</b></div>
+      <div class="info"><small>Current GW</small><b>6</b></div>
+      <div class="info"><small>Overall rank</small><b>184,221</b></div>
+      <div class="info"><small>Current points</small><b>61</b></div>
+    </div>
+  </div>
+  <div class="stack">
+    <button class="btn primary" onclick="confirmTeam()">Yes, save this team &amp; join</button>
+    <button class="btn secondary" onclick="go('verify')">No, enter another ID</button>
+  </div>
+</section>
+
+<!-- QUICK JOIN (returning, already-registered users) -->
+<section id="quickjoin" class="screen">
+  <button class="back" onclick="go('games')">‹ Gameweek 6</button>
+  <span class="badge final">Registered team</span>
+  <h1>Confirm your entry</h1>
+  <p>You're already registered — no need to enter your Manager ID again.</p>
+  <div class="card" style="margin-top:15px">
+    <div class="row">
+      <div class="avatar" id="quickAvatar">FD</div>
+      <div class="row-main"><b id="quickTeamName">Buna Bandits</b><span id="quickManagerLine">Firaol Dugasaa · Manager ID 123456</span></div>
+      <span>✓</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="info-grid">
+      <div class="info"><small>Entry fee</small><b>200 ETB</b></div>
+      <div class="info"><small>Wallet balance</small><b id="quickWalletBalance">1,250 ETB</b></div>
+    </div>
+  </div>
+  <button class="btn primary" onclick="finishJoin()">Confirm &amp; join · 200 ETB</button>
+</section>
+
+<!-- WALLET -->
+<section id="wallet" class="screen">
+  <h1>Wallet</h1>
+  <p>Your internal competition wallet.</p>
+  <div class="card hero" style="margin-top:15px">
+    <div class="eyebrow">Available balance</div>
+    <div class="amount" style="color:#fff;margin:8px 0" id="walletBalance">1,250 ETB</div>
+    <div class="stack">
+      <button class="btn white" onclick="openModal('deposit')">Deposit</button>
+      <button class="btn white" onclick="openModal('withdraw')">Withdraw</button>
+    </div>
+  </div>
+  <div class="stats four">
+    <div class="stat"><b id="statPending">0 ETB</b><span>Pending balance</span></div>
+    <div class="stat"><b id="statDeposits">2,400 ETB</b><span>Total deposits</span></div>
+    <div class="stat"><b id="statEntries">12</b><span>Total entries</span></div>
+    <div class="stat"><b id="statWinnings">8,000 ETB</b><span>Total winnings</span></div>
+  </div>
+  <div class="section"><b>Transactions</b></div>
+  <div class="card" id="txList"></div>
+
+  <div class="ad-slot" style="margin-top:12px">
+    <div class="ad-icon">Ad</div>
+    <div class="ad-text"><b>Advertisement space</b><span>Reserved 320×100 banner slot</span></div>
+  </div>
+</section>
+
+<!-- LEADERBOARD -->
+<section id="leaderboard" class="screen">
+  <h1>Leaderboard</h1>
+  <p>Gameweek 6 · Live points are provisional.</p>
+  <div class="alert" style="margin-top:14px">Final ranking is generated only after official FPL score finalization.</div>
+  <div class="card">
+    <div class="row"><div class="avatar gold">1</div><div class="row-main"><b>Fira FC</b><span>FPL team</span></div><b>94 pts</b></div>
+    <div class="row"><div class="avatar">2</div><div class="row-main"><b>Arsenal X</b><span>FPL team</span></div><b>91 pts</b></div>
+    <div class="row"><div class="avatar">3</div><div class="row-main"><b>Oromia FC</b><span>FPL team</span></div><b>89 pts</b></div>
+    <div class="row"><div class="avatar">4</div><div class="row-main"><b>Blue Lions</b><span>FPL team</span></div><b>87 pts</b></div>
+    <div class="row"><div class="avatar">5</div><div class="row-main"><b>Addis FC</b><span>FPL team</span></div><b>85 pts</b></div>
+    <div class="row" style="background:#e4f2ea;border-radius:12px;padding:12px 8px">
+      <div class="avatar">37</div>
+      <div class="row-main"><b>You</b><span id="lbTeamName">Buna Bandits</span></div>
+      <b>71 pts</b>
+    </div>
+  </div>
+  <div class="card center">
+    <p>Your position</p>
+    <div style="font-size:34px;font-weight:900">#37</div>
+    <p style="margin-top:8px">Your score</p>
+    <div style="font-size:24px;font-weight:900">71 points</div>
+  </div>
+  <button class="btn secondary" onclick="go('history')">View past gameweeks</button>
+</section>
+
+<!-- HISTORY / TRANSPARENCY -->
+<section id="history" class="screen">
+  <button class="back" onclick="go('leaderboard')">‹ Leaderboard</button>
+  <h1>Gameweek history</h1>
+  <p>Every result is generated from verified FPL data and published for full transparency.</p>
+  <div class="card" style="margin-top:14px">
+    <div class="row">
+      <div class="avatar sm">5</div>
+      <div class="row-main"><b>GW5 · Winner: Manager C</b><span>121 participants · Winning score 101 pts</span></div>
+      <b>9,600 ETB</b>
+    </div>
+    <div class="row">
+      <div class="avatar sm">4</div>
+      <div class="row-main"><b>GW4 · Winner: Manager B</b><span>74 participants · Winning score 92 pts</span></div>
+      <b>5,900 ETB</b>
+    </div>
+    <div class="row">
+      <div class="avatar sm">3</div>
+      <div class="row-main"><b>GW3 · Winner: Manager A</b><span>50 participants · Winning score 87 pts</span></div>
+      <b>4,000 ETB</b>
+    </div>
+  </div>
+  <p style="font-size:11px;text-align:center;margin-top:4px">All payouts shown as Success have been verified and paid out.</p>
+</section>
+
+<!-- PROFILE -->
+<section id="profile" class="screen">
+  <h1>My Profile</h1>
+  <div class="card center" style="margin-top:15px">
+    <div class="avatar" style="width:64px;height:64px;margin:auto;font-size:18px" id="profileAvatar">F</div>
+    <h2 style="margin-top:12px" id="profileName">Firaol Dugasaa</h2>
+    <p id="profileUsername">@firaol</p>
+  </div>
+  <div class="card">
+    <div class="row"><div class="row-main"><b>Telegram phone</b><span id="profilePhone">0961242949</span></div></div>
+    <div class="row"><div class="row-main"><b>FPL team</b><span id="profileTeamName">Not registered yet</span></div></div>
+    <div class="row"><div class="row-main"><b>Manager ID</b><span id="profileManagerId">—</span></div></div>
+    <div class="row"><div class="row-main"><b>Gameweeks played</b><span>12</span></div></div>
+    <div class="row"><div class="row-main"><b>Total points</b><span>842</span></div></div>
+    <div class="row"><div class="row-main"><b>Best rank</b><span>#1</span></div></div>
+    <div class="row"><div class="row-main"><b>Total entries</b><span>12</span></div></div>
+    <div class="row"><div class="row-main"><b>Total winnings</b><span>24,500 ETB</span></div></div>
+    <div class="row"><div class="row-main"><b>Total withdrawals</b><span>10,000 ETB</span></div></div>
+  </div>
+</section>
+
+<!-- FINAL RESULT -->
+<section id="result" class="screen">
+  <span class="badge final">Final</span>
+  <h1>Gameweek 5 result</h1>
+  <p>Official FPL score finalized and ranking completed.</p>
+  <div class="card center" style="margin-top:15px">
+    <div style="font-size:40px;font-weight:900">#1</div>
+    <p>Final position</p>
+    <div style="font-size:26px;font-weight:900">92 points</div>
+    <p style="margin-top:10px">Prize awarded</p>
+    <div style="font-size:24px;font-weight:900">8,000 ETB</div>
+  </div>
+  <button class="btn primary" onclick="go('wallet')">View wallet</button>
+</section>
 </main>
 
-<nav id="tabbar">
-  <button data-target="screen-home" class="tab active">Home</button>
-  <button data-target="screen-games" class="tab">Games</button>
-  <button data-target="screen-leaderboard" class="tab">Board</button>
-  <button data-target="screen-wallet" class="tab">Wallet</button>
-  <button data-target="screen-profile" class="tab">Profile</button>
+<nav class="nav">
+  <button data-go="home" class="active"><span>⌂</span>HOME</button>
+  <button data-go="games"><span>▣</span>GAMES</button>
+  <button data-go="leaderboard"><span>☷</span>LEADERBOARD</button>
+  <button data-go="wallet"><span>◈</span>WALLET</button>
+  <button data-go="profile"><span>●</span>PROFILE</button>
 </nav>
+</div>
 
-<script src="app.js"></script>
+<div id="modal" class="modal">
+  <div class="sheet">
+    <div class="handle"></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+// ============================================================
+// API
+// ============================================================
+const API_BASE = ""; // same-origin: FastAPI serves this file at /miniapp/
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+if (tg) { tg.ready(); tg.expand(); }
+
+let authToken = null;
+
+async function api(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed (${resp.status})`);
+  }
+  return resp.status === 204 ? null : resp.json();
+}
+
+async function authenticate() {
+  if (!tg || !tg.initData) {
+    toast("Open this from the Telegram bot to sign in.");
+    return false;
+  }
+  const data = await api("/auth/telegram-webapp", {
+    method: "POST",
+    body: JSON.stringify({ init_data: tg.initData }),
+  });
+  authToken = data.access_token;
+  return true;
+}
+
+// ============================================================
+// TELEGRAM IDENTITY — real, from Telegram's signed initData (verified
+// server-side on the /auth/telegram-webapp call above). Phone number
+// isn't available via the Mini App API — it's captured once by the bot
+// during /start and stored server-side, so we pull it from /users/me/profile.
+// ============================================================
+const tgUser = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {
+  first_name: "there", last_name: "", username: "",
+};
+const telegramFullName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ");
+
+// ============================================================
+// STATE — populated from the backend, not hardcoded demo data
+// ============================================================
+let currentGameweek = null;   // GameweekOut from /gameweeks/current
+let profile = null;           // ProfileOut from /users/me/profile
+let wallet = null;            // WalletOut from /wallet/me
+let pendingManagerLookup = null; // { manager_id, team_name, manager_name } while verify->confirm is in progress
+let pendingDeposit = null;    // { amount, method } while the deposit modal is open
+let depositAccounts = null;   // from /deposits/instructions
+
+function etb(n) {
+  return Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 }) + " ETB";
+}
+function roundPrize(n) { return Math.floor(n / 100) * 100; }
+
+// ============================================================
+// DOM ELEMENTS (unchanged ids from the original design)
+// ============================================================
+const homeParticipantsEl = document.getElementById('homeParticipants');
+const homePrizePoolEl    = document.getElementById('homePrizePool');
+const homeParticipantCount = document.getElementById('homeParticipantCount');
+const homeProgressBar    = document.getElementById('homeProgressBar');
+const homeTeamRow        = document.getElementById('homeTeamRow');
+const homeWalletEl       = document.getElementById('homeWallet');
+const homeStatusBadge    = document.getElementById('homeStatusBadge');
+
+const gamesParticipantsEl = document.getElementById('gamesParticipants');
+const gamesPrizePoolEl    = document.getElementById('gamesPrizePool');
+const gamesStatusBadge    = document.getElementById('gamesStatusBadge');
+const firstPrizeEl        = document.getElementById('firstPrize');
+const secondPrizeEl       = document.getElementById('secondPrize');
+const thirdPrizeEl        = document.getElementById('thirdPrize');
+const joinBtn             = document.getElementById('joinBtn');
+const gamesRegisteredNote = document.getElementById('gamesRegisteredNote');
+const gamesRegisteredTeam = document.getElementById('gamesRegisteredTeam');
+
+const walletBalanceEl = document.getElementById('walletBalance');
+
+// ============================================================
+// RENDER
+// ============================================================
+function render() {
+  document.getElementById('heroName').textContent = tgUser.first_name || 'there';
+  document.getElementById('profileName').textContent = telegramFullName || (profile && profile.full_name) || '—';
+  document.getElementById('profileUsername').textContent = tgUser.username ? '@' + tgUser.username : '';
+  document.getElementById('verifyTgName').textContent = telegramFullName;
+  document.getElementById('verifyTgAvatar').textContent = (tgUser.first_name || '?').charAt(0);
+  document.getElementById('confirmManagerName').textContent = telegramFullName;
+
+  if (!currentGameweek) return;
+
+  const pool = Number(currentGameweek.prize_pool);
+  const poolFormatted = etb(pool);
+  const participantsFormatted = currentGameweek.participants.toLocaleString('en-US');
+  const statusLabel = currentGameweek.status.replace(/_/g, ' ');
+
+  homeParticipantsEl.textContent = participantsFormatted;
+  homePrizePoolEl.textContent = poolFormatted;
+  homeParticipantCount.textContent = participantsFormatted + ' participants registered';
+  if (wallet) homeWalletEl.textContent = Number(wallet.available_balance).toLocaleString('en-US');
+  let pct = Math.min((currentGameweek.participants / 1000) * 100, 100);
+  homeProgressBar.style.width = pct + '%';
+  homeStatusBadge.textContent = statusLabel;
+  gamesStatusBadge.textContent = statusLabel;
+  document.querySelector('#home h1').textContent = `Gameweek ${currentGameweek.gw_number} is open`;
+  document.querySelectorAll('#games h1')[0].textContent = `Gameweek ${currentGameweek.gw_number}`;
+
+  gamesParticipantsEl.textContent = participantsFormatted;
+  gamesPrizePoolEl.textContent = poolFormatted;
+
+  // Prize distribution is an ESTIMATE from the live pool until the
+  // gameweek is finalized — actual Prize records are only created after
+  // official FPL scores settle (see the v2 spec's SCORES_FINAL step).
+  firstPrizeEl.textContent  = etb(roundPrize(pool * 0.40));
+  secondPrizeEl.textContent = etb(roundPrize(pool * 0.30));
+  thirdPrizeEl.textContent  = etb(roundPrize(pool * 0.20));
+
+  if (wallet) walletBalanceEl.textContent = etb(wallet.available_balance);
+
+  const hasTeam = profile && profile.fpl_manager_id;
+  if (hasTeam) {
+    const initials = (tgUser.first_name || '?').charAt(0) + (tgUser.last_name || '').charAt(0);
+    homeTeamRow.innerHTML = `
+      <div class="avatar">${initials}</div>
+      <div class="row-main"><b>${profile.fpl_team_name}</b><span>${telegramFullName} · Manager ID ${profile.fpl_manager_id}</span></div>
+      <span>✓</span>`;
+    document.getElementById('profileTeamName').textContent = profile.fpl_team_name;
+    document.getElementById('profileManagerId').textContent = profile.fpl_manager_id;
+    document.getElementById('lbTeamName').textContent = profile.fpl_team_name;
+    gamesRegisteredNote.style.display = 'flex';
+    gamesRegisteredTeam.textContent = profile.fpl_team_name;
+  } else {
+    homeTeamRow.innerHTML = `
+      <div class="avatar">—</div>
+      <div class="row-main"><b>No team registered</b><span>Join a gameweek to register your FPL team</span></div>`;
+    gamesRegisteredNote.style.display = 'none';
+  }
+
+  if (profile) {
+    document.getElementById('profilePhone').textContent = profile.phone_number || '—';
+    document.querySelector('#profile .row:nth-child(4) span').textContent = profile.total_gameweeks;
+    document.querySelector('#profile .row:nth-child(5) span').textContent = profile.total_points;
+    document.querySelector('#profile .row:nth-child(6) span').textContent = profile.best_rank ? '#' + profile.best_rank : '—';
+    document.querySelector('#profile .row:nth-child(7) span').textContent = profile.total_gameweeks;
+    document.querySelector('#profile .row:nth-child(8) span').textContent = etb(profile.total_winnings);
+    document.querySelector('#profile .row:nth-child(9) span').textContent = etb(profile.total_withdrawals);
+  }
+
+  const joined = currentGameweek.my_entry_status === 'confirmed';
+  if (joined) {
+    joinBtn.textContent = `Entry confirmed for Gameweek ${currentGameweek.gw_number}`;
+    joinBtn.disabled = true;
+  } else {
+    joinBtn.textContent = 'Join Gameweek · ' + etb(currentGameweek.entry_fee);
+    joinBtn.disabled = currentGameweek.status !== 'registration_open';
+  }
+}
+
+async function renderWallet() {
+  try {
+    const txns = await api('/wallet/transactions');
+    const statusClass = { success: 'live', approved: 'live', pending: 'pending', failed: 'final', rejected: 'final', cancelled: 'final', reversed: 'final' };
+    const labelMap = { deposit: 'Deposit', entry_fee: 'Gameweek entry', prize: 'Prize', withdrawal: 'Withdrawal', refund: 'Refund', adjustment: 'Adjustment' };
+
+    let pendingTotal = 0, depositsTotal = 0, winningsTotal = 0, entriesCount = 0;
+    txns.forEach(t => {
+      const amt = Number(t.amount);
+      if (t.status === 'pending') pendingTotal += Math.max(amt, 0);
+      if (t.type === 'deposit' && (t.status === 'approved' || t.status === 'success')) depositsTotal += amt;
+      if (t.type === 'prize') winningsTotal += amt;
+      if (t.type === 'entry_fee') entriesCount += 1;
+    });
+    document.getElementById('statPending').textContent = etb(pendingTotal);
+    document.getElementById('statDeposits').textContent = etb(depositsTotal);
+    document.getElementById('statEntries').textContent = entriesCount;
+    document.getElementById('statWinnings').textContent = etb(winningsTotal);
+
+    const txList = document.getElementById('txList');
+    txList.innerHTML = txns.length ? txns.map(t => {
+      const amt = Number(t.amount);
+      const sign = amt >= 0 ? '+' : '-';
+      const icon = amt >= 0 ? '+' : '−';
+      const methodTag = t.method ? ' · ' + t.method : '';
+      return `
+      <div class="row">
+        <div class="avatar sm">${icon}</div>
+        <div class="row-main"><b>${labelMap[t.type] || t.type}</b><span>${methodTag ? methodTag.slice(3) : ''}${methodTag ? ' · ' : ''}${t.status}</span></div>
+        <b>${sign}${Math.abs(amt).toLocaleString('en-US')} ETB</b>
+      </div>`;
+    }).join('') : '<p class="muted" style="padding:8px 0">No transactions yet.</p>';
+  } catch (e) { /* wallet screen just shows empty state */ }
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+const screens = [...document.querySelectorAll('.screen')];
+const nav = [...document.querySelectorAll('.nav button')];
+
+function go(id) {
+  screens.forEach(x => x.classList.toggle('active', x.id === id));
+  nav.forEach(x => x.classList.toggle('active', x.dataset.go === id));
+  scrollTo({ top: 0, behavior: 'smooth' });
+  if (id === 'wallet') renderWallet();
+  if (id === 'leaderboard') renderLeaderboard();
+  if (id === 'history') renderHistory();
+}
+nav.forEach(x => x.onclick = () => go(x.dataset.go));
+
+async function renderLeaderboard() {
+  if (!currentGameweek) return;
+  try {
+    const rows = await api(`/gameweeks/${currentGameweek.id}/leaderboard`);
+    const list = document.querySelector('#leaderboard .card');
+    if (!rows.length) {
+      list.innerHTML = '<p class="muted">No scores yet — check back once the gameweek is live.</p>';
+      return;
+    }
+    const me = rows.find(r => r.is_me);
+    list.innerHTML = rows.slice(0, 10).map((r, i) => `
+      <div class="row" ${r.is_me ? 'style="background:#e4f2ea;border-radius:12px;padding:12px 8px"' : ''}>
+        <div class="avatar ${i === 0 ? 'gold' : ''}">${r.rank ?? i + 1}</div>
+        <div class="row-main"><b>${r.is_me ? 'You' : r.display_name}</b><span>FPL team</span></div>
+        <b>${r.points} pts</b>
+      </div>`).join('');
+    if (me) {
+      document.querySelector('#leaderboard .card.center div:nth-child(2)').textContent = '#' + (me.rank ?? '—');
+      document.querySelector('#leaderboard .card.center div:nth-child(4)').textContent = me.points + ' points';
+    }
+  } catch (e) { /* leave the placeholder rows */ }
+}
+
+async function renderHistory() {
+  try {
+    const gws = await api('/gameweeks/history');
+    const list = document.querySelector('#history .card');
+    list.innerHTML = gws.length ? gws.map(g => `
+      <div class="row">
+        <div class="avatar sm">${g.gw_number}</div>
+        <div class="row-main"><b>GW${g.gw_number}${g.winner_team_name ? ' · Winner: ' + g.winner_team_name : ''}</b><span>${g.participants} participants</span></div>
+        <b>${g.winner_prize ? etb(g.winner_prize) : '—'}</b>
+      </div>`).join('') : '<p class="muted">No archived gameweeks yet.</p>';
+  } catch (e) { /* leave empty */ }
+}
+
+// ============================================================
+// JOIN FLOW
+// ============================================================
+function startEntry() {
+  if (!currentGameweek) return;
+  if (currentGameweek.my_entry_status === 'confirmed') { go('wallet'); return; }
+  if (profile && profile.fpl_manager_id) {
+    const initials = (tgUser.first_name || '?').charAt(0) + (tgUser.last_name || '').charAt(0);
+    document.getElementById('quickAvatar').textContent = initials;
+    document.getElementById('quickTeamName').textContent = profile.fpl_team_name;
+    document.getElementById('quickManagerLine').textContent = telegramFullName + ' · Manager ID ' + profile.fpl_manager_id;
+    document.getElementById('quickWalletBalance').textContent = wallet ? etb(wallet.available_balance) : '—';
+    go('quickjoin');
+  } else {
+    go('verify');
+  }
+}
+
+async function verifyFPL() {
+  const input = document.getElementById('managerId');
+  const err = document.getElementById('managerIdErr');
+  const id = input.value.trim();
+  if (!/^\d{3,10}$/.test(id)) {
+    input.classList.add('err'); err.style.display = 'block'; return;
+  }
+  input.classList.remove('err'); err.style.display = 'none';
+
+  try {
+    const team = await api('/fpl/lookup', { method: 'POST', body: JSON.stringify({ manager_id: id }) });
+    pendingManagerLookup = team;
+    document.getElementById('confirmManagerId').textContent = team.manager_id;
+    document.getElementById('confirmTeamName').textContent = team.team_name;
+    const initials = (tgUser.first_name || '?').charAt(0) + (tgUser.last_name || '').charAt(0);
+    document.getElementById('confirmAvatar').textContent = initials;
+    document.querySelector('#confirm .info-grid .info:nth-child(3) b').textContent = currentGameweek ? currentGameweek.gw_number : '—';
+    document.querySelector('#confirm .info-grid .info:nth-child(4) b').textContent = '—';
+    go('confirm');
+  } catch (e) {
+    input.classList.add('err');
+    err.textContent = e.message || 'No FPL manager found with that ID.';
+    err.style.display = 'block';
+  }
+}
+
+async function confirmTeam() {
+  if (!pendingManagerLookup) return;
+  try {
+    await api('/fpl/confirm', { method: 'POST', body: JSON.stringify({ manager_id: pendingManagerLookup.manager_id }) });
+    toast('Team saved to your account');
+    await loadProfile();
+    render();
+    finishJoin();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function finishJoin() {
+  if (!currentGameweek) return;
+  try {
+    currentGameweek = await api(`/gameweeks/${currentGameweek.id}/join`, { method: 'POST' });
+    await loadWallet();
+    render();
+    toast(`Entry confirmed for Gameweek ${currentGameweek.gw_number}`);
+    setTimeout(() => go('wallet'), 700);
+  } catch (e) {
+    toast(e.message);
+    go('wallet');
+  }
+}
+
+// ============================================================
+// MODAL (deposit / withdraw)
+// ============================================================
+function openModal(type) {
+  if (type === 'deposit') { pendingDeposit = null; showDepositStep1(); }
+  if (type === 'withdraw') {
+    const body = document.getElementById('modalBody');
+    body.innerHTML = `
+      <h2>Withdraw</h2>
+      <p>Withdraw from your available balance to your registered payment account.</p>
+      <div class="field">
+        <label class="label">Amount (ETB)</label>
+        <input id="withdrawAmount" class="input" value="500" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label class="label">Destination account</label>
+        <input id="withdrawAccount" class="input" placeholder="Telebirr or bank account number">
+      </div>
+      <div class="alert">Funds are held pending review, then paid to the account above.</div>
+      <button class="btn primary" onclick="handleWithdraw()">Continue</button>`;
+  }
+  document.getElementById('modal').classList.add('show');
+}
+
+async function showDepositStep1() {
+  if (!depositAccounts) {
+    try { depositAccounts = await api('/deposits/instructions'); } catch (e) { toast(e.message); return; }
+  }
+  const body = document.getElementById('modalBody');
+  body.innerHTML = `
+    <h2>Deposit</h2>
+    <p>Enter an amount, then choose how you'd like to pay.</p>
+    <div class="field">
+      <label class="label">Amount (ETB)</label>
+      <input id="depositAmount" class="input" value="500" inputmode="decimal">
+    </div>
+    <label class="label">Payment method</label>
+    <button class="pay-method" onclick="chooseDepositMethod('telebirr')">
+      <div class="pm-icon telebirr">TB</div>
+      <div><b>Telebirr</b><span>Send via mobile money</span></div>
+    </button>
+    <button class="pay-method" onclick="chooseDepositMethod('cbe')">
+      <div class="pm-icon cbe">CBE</div>
+      <div><b>Commercial Bank of Ethiopia</b><span>Bank transfer</span></div>
+    </button>`;
+}
+
+function chooseDepositMethod(method) {
+  const amt = parseFloat(document.getElementById('depositAmount').value) || 0;
+  if (amt <= 0) { toast('Enter a valid amount'); return; }
+  pendingDeposit = { amount: amt, method: method };
+  showDepositStep2();
+}
+
+function showDepositStep2() {
+  const isTelebirr = pendingDeposit.method === 'telebirr';
+  const label = isTelebirr ? 'Telebirr' : 'Commercial Bank of Ethiopia';
+  const account = isTelebirr ? depositAccounts.telebirr_receiver_number : depositAccounts.cbe_account_number;
+  const holder = isTelebirr ? depositAccounts.telebirr_receiver_name : depositAccounts.cbe_receiver_name;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = `
+    <h2>Pay with ${label}</h2>
+    <p>Send exactly <b>${etb(pendingDeposit.amount)}</b> to the account below, then enter the transaction ID from your payment confirmation.</p>
+    <div class="copy-row">
+      <div><span class="cr-label">${label} number</span><span class="cr-value" id="accNumber">${account}</span></div>
+      <button onclick="copyAccountNumber()">Copy</button>
+    </div>
+    <p style="font-size:11.5px">Account name: <b style="color:var(--text)">${holder}</b></p>
+    <div class="field">
+      <label class="label">Transaction ID / reference code</label>
+      <input id="depositTxCode" class="input" placeholder="e.g. DIJ3USEE6B" style="text-transform:uppercase">
+      <div class="err-msg" id="depositTxCodeErr">Enter the transaction ID from your payment confirmation.</div>
+      <p class="hint">Found in the SMS or receipt you got after sending the payment.</p>
+    </div>
+    <div class="alert">Deposits are held as Pending until the payment is verified by an admin.</div>
+    <div class="stack">
+      <button class="btn primary" onclick="submitDepositForVerification()">Submit for verification</button>
+      <button class="btn secondary" onclick="showDepositStep1()">‹ Change method</button>
+    </div>`;
+}
+
+function copyAccountNumber() {
+  const isTelebirr = pendingDeposit.method === 'telebirr';
+  const account = isTelebirr ? depositAccounts.telebirr_receiver_number : depositAccounts.cbe_account_number;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(account).then(() => toast('Account number copied'))
+      .catch(() => toast('Could not copy — copy manually'));
+  } else {
+    toast('Could not copy — copy manually');
+  }
+}
+
+async function submitDepositForVerification() {
+  const input = document.getElementById('depositTxCode');
+  const err = document.getElementById('depositTxCodeErr');
+  const code = input.value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{3,}$/.test(code)) {
+    input.classList.add('err'); err.style.display = 'block'; return;
+  }
+  input.classList.remove('err'); err.style.display = 'none';
+
+  try {
+    await api('/deposits', {
+      method: 'POST',
+      body: JSON.stringify({ method: pendingDeposit.method, amount: pendingDeposit.amount, transaction_id: code }),
+    });
+    toast('Deposit submitted · pending verification');
+    closeModal();
+    renderWallet();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function handleWithdraw() {
+  const amt = parseFloat(document.getElementById('withdrawAmount').value) || 0;
+  const account = document.getElementById('withdrawAccount').value.trim();
+  if (amt <= 0) { toast('Enter a valid amount'); return; }
+  if (!account) { toast('Enter a destination account'); return; }
+  try {
+    await api('/withdrawals', {
+      method: 'POST',
+      body: JSON.stringify({ amount: amt, destination_account: account }),
+    });
+    toast('Withdrawal request submitted');
+    closeModal();
+    await loadWallet();
+    render();
+    renderWallet();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+
+// ============================================================
+// NOTIFICATIONS
+// A lightweight, derived view for now — built from your own recent
+// deposit/withdrawal activity rather than a separate notifications
+// backend, which isn't built yet. Real push-style alerts still come
+// through the Telegram bot itself.
+// ============================================================
+async function openNotifications() {
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '<h2 style="margin-bottom:10px">Recent activity</h2><p class="muted">Loading…</p>';
+  document.getElementById('modal').classList.add('show');
+  document.getElementById('bellDot').style.display = 'none';
+  try {
+    const txns = await api('/wallet/transactions');
+    const labelMap = { deposit: 'Deposit', entry_fee: 'Gameweek entry', prize: 'Prize', withdrawal: 'Withdrawal', refund: 'Refund' };
+    body.innerHTML = '<h2 style="margin-bottom:10px">Recent activity</h2>' +
+      (txns.slice(0, 8).map(t => `
+        <div class="notif-item">
+          <b>${labelMap[t.type] || t.type}</b>
+          <p>${Number(t.amount) >= 0 ? '+' : ''}${Number(t.amount).toLocaleString('en-US')} ETB — ${t.status}</p>
+          <small>${new Date(t.created_at).toLocaleString()}</small>
+        </div>`).join('') || '<p class="muted">Nothing yet.</p>');
+  } catch (e) {
+    body.innerHTML = '<h2>Recent activity</h2><p class="muted">' + e.message + '</p>';
+  }
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ============================================================
+// LOAD
+// ============================================================
+async function loadProfile() {
+  try { profile = await api('/users/me/profile'); } catch (e) { /* stays null until FPL team confirmed */ }
+}
+async function loadWallet() {
+  try { wallet = await api('/wallet/me'); } catch (e) { /* ignore */ }
+}
+async function loadGameweek() {
+  try { currentGameweek = await api('/gameweeks/current'); } catch (e) { toast(e.message); }
+}
+
+(async function init() {
+  const ok = await authenticate().catch(e => { toast(e.message); return false; });
+  if (!ok) return;
+  await Promise.all([loadProfile(), loadWallet(), loadGameweek()]);
+  render();
+})();
+</script>
 </body>
 </html>

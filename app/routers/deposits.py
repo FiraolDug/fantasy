@@ -90,6 +90,18 @@ def my_deposits(current_user: User = Depends(get_current_user), db: Session = De
     )
 
 
+@router.get("", response_model=list[DepositRequestOut])
+def list_deposits(
+    admin: User = Depends(require_finance_admin),
+    db: Session = Depends(get_db),
+    status_filter: str | None = None,
+):
+    q = db.query(DepositRequest)
+    if status_filter:
+        q = q.filter(DepositRequest.status == DepositStatus(status_filter))
+    return q.order_by(DepositRequest.created_at.desc()).limit(200).all()
+
+
 @router.post("/{deposit_id}/approve", response_model=DepositRequestOut)
 def approve_deposit(
     deposit_id: uuid.UUID,

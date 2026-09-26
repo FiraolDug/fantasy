@@ -70,6 +70,54 @@ def _to_out(gw: Gameweek, db: Session, current_user: User | None) -> GameweekOut
     )
 
 
+@router.get("/history", response_model=list[dict])
+def gameweek_history(db: Session = Depends(get_db)):
+    """
+    Publicly viewable per the spec's transparency requirement — no auth
+    required. Only archived gameweeks with a recorded prize are shown.
+    """
+    archived = (
+        db.query(Gameweek)
+        .filter(Gameweek.status == GameweekStatus.ARCHIVED)
+        .order_by(Gameweek.gw_number.desc())
+        .limit(20)
+        .all()
+    )
+    out = []
+    for gw in archived:
+        participants = (
+            db.query(func.count(CompetitionEntry.id))
+            .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.status == EntryStatus.CONFIRMED)
+            .scalar()
+            or 0
+        )
+        from app.models import Prize
+
+        winner_prize = (
+            db.query(Prize).filter(Prize.gameweek_id == gw.id, Prize.position == 1).first()
+        )
+        winner_name = None
+        if winner_prize:
+            winner_team = (
+                db.query(FPLTeam)
+                .join(CompetitionEntry, CompetitionEntry.fpl_team_id == FPLTeam.id)
+                .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.user_id == winner_prize.user_id)
+                .first()
+            )
+            winner_name = winner_team.team_name if winner_team else None
+
+        out.append(
+            {
+                "gw_number": gw.gw_number,
+                "participants": participants,
+                "prize_pool": str(gw.entry_fee * participants),
+                "winner_team_name": winner_name,
+                "winner_prize": str(winner_prize.amount) if winner_prize else None,
+            }
+        )
+    return out
+
+
 @router.get("/current", response_model=GameweekOut)
 def current_gameweek(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     gw = (

@@ -53,8 +53,9 @@ Telegram requires **HTTPS** for a real Mini App, so for anything beyond
 local testing put it behind a tunnel (ngrok/Cloudflare Tunnel) or deploy
 `miniapp/` to any static host and point `MINI_APP_URL` there.
 
-- Admin panel (CRUD): http://localhost:8000/admin
-- Admin overview/stats dashboard: http://localhost:8000/admin/dashboard
+- Branded admin panel (day-to-day use): http://localhost:8000/admin-ui/ — login with `ADMIN_EMAIL` / `ADMIN_PASSWORD`. Overview, Deposits (approve/reject), Withdrawals (approve/reject), Gameweeks (create + list), Users (read-only), Fraud alerts, Audit log.
+- Full record CRUD (sqladmin, for anything the branded panel doesn't cover — editing raw rows, changing a user's role): http://localhost:8000/admin
+- Admin stats-only dashboard (superseded by `/admin-ui/`'s Overview, kept for reference): http://localhost:8000/admin/dashboard
 - API docs: http://localhost:8000/docs
 - Mini App (dev only): http://localhost:8000/miniapp/
 
@@ -70,8 +71,8 @@ local testing put it behind a tunnel (ngrok/Cloudflare Tunnel) or deploy
    button; Wallet shows the Telebirr/CBE deposit instructions and a form to
    submit a transaction ID; Games shows this week's details; Board shows
    the live leaderboard; Profile shows FPL team + stats.
-5. Admin verifies deposits and monitors everything from `/admin` and
-   `/admin/dashboard`.
+5. Admin verifies deposits/withdrawals and monitors everything from
+   `/admin-ui/` (day to day) or `/admin` (raw record editing).
 
 ## Deploying to Render (free, for testing)
 
@@ -180,7 +181,7 @@ issue.
 
 ```
 app/
-  main.py              FastAPI app, middleware, router + static mount
+  main.py              FastAPI app, middleware, router + static mounts
   config.py            env-based settings (pydantic-settings)
   database.py          SQLAlchemy engine/session
   models.py            ORM models — full schema from the v2 spec
@@ -188,17 +189,21 @@ app/
   security.py          password hashing + JWT
   deps.py              auth dependencies / RBAC guards
   admin.py             sqladmin CRUD dashboard + auth backend
-  admin_dashboard.py    /admin/dashboard stats overview page
+  admin_dashboard.py    /admin/dashboard stats overview page (superseded by admin-ui/)
+  telegram_bot.py        bot logic, run via webhook (see main.py) or bot.py's polling
   templates/
     dashboard.html      admin stats page template
   routers/
     auth.py              admin/staff login + Mini App Telegram login
-    deposits.py           Telebirr/CBE manual deposit + verification
-    wallet.py              wallet balance
-    fpl.py                 FPL manager lookup/confirm (rate-limited)
-    users.py                profile aggregation, phone update
-    gameweeks.py             current/join/leaderboard
-    internal.py               bot-only endpoints (shared-secret auth)
+    deposits.py           Telebirr/CBE manual deposit + verification + admin list
+    withdrawals.py         request + admin approve/reject (holds funds in pending)
+    wallet.py               balance + transaction history
+    fpl.py                   FPL manager lookup/confirm (rate-limited)
+    users.py                  profile aggregation, phone update
+    gameweeks.py               current/join/leaderboard/history
+    internal.py                 bot-only endpoints (shared-secret auth)
+    admin_api.py                 JSON API behind admin-ui/ (overview, users,
+                                  gameweeks, fraud alerts, audit log)
   services/
     ledger.py               all wallet credit/debit logic (source of truth)
     fpl_client.py             official FPL API client
@@ -207,23 +212,34 @@ app/
   utils/
     audit.py                 audit log helper
 miniapp/
-  index.html / style.css / app.js    Telegram Mini App (vanilla JS)
-bot.py                  Telegram bot process (aiogram)
+  index.html              Telegram Mini App — single self-contained file
+admin-ui/
+  index.html              Branded admin panel — single self-contained file
+bot.py                  Local-dev-only polling entrypoint (production uses webhook)
 init_db.py              bootstrap: create tables + seed super admin
 requirements.txt
 .env.example
+render.yaml
 ```
 
 ## Not yet built (flagged, not silently skipped)
 
 - Automated FPL score sync loop + prize calculation job (services stubbed;
   the state machine, `ScoreSnapshot`, `Prize`, `TieBreakRecord` models are
-  in place per the v2 spec, but nothing yet writes to them automatically)
-- Withdrawal payout execution (model + admin visibility exist; no payout
-  provider integration yet since none was specified)
+  in place per the v2 spec, but nothing yet writes to them automatically —
+  this is why the Mini App's prize distribution and the leaderboard both
+  say "estimate"/"provisional" until it exists)
 - Refund and dispute *workflow* endpoints (models exist; approve/reject
-  logic like deposits has isn't written yet)
-- Mini App is vanilla JS for zero build-step simplicity — fine for MVP,
-  but consider React/Telegram's official UI kit if the UI grows
+  logic like deposits/withdrawals has isn't written yet)
+- Real payout execution: approving a withdrawal in the admin panel marks
+  it paid, but doesn't call a payment provider — none is configured, so
+  you still send the money by hand, the same way deposits are verified
+  by hand
+- admin-ui/'s Users and Gameweeks screens don't support editing roles or
+  correcting a gameweek — that still goes through the sqladmin panel at
+  `/admin`, on purpose, to keep this build's scope honest
+- The Mini App's notification bell shows your own recent wallet activity,
+  not a real push-notification feed — that's not built as a separate
+  system yet; real-time alerts still come through the Telegram bot itself
 
 Tell me which of these to build next and I'll continue in the same style.

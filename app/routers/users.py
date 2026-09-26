@@ -32,6 +32,7 @@ class ProfileOut(BaseModel):
     fpl_team_name: str | None
     fpl_manager_id: str | None
     total_gameweeks: int
+    total_points: int
     best_rank: int | None
     total_winnings: Decimal
     total_withdrawals: Decimal
@@ -67,6 +68,24 @@ def my_profile(current_user: User = Depends(get_current_user), db: Session = Dep
         .scalar()
     )
 
+    # Sum each entry's LATEST snapshot points (not every snapshot — those
+    # accumulate as bonus points settle across a live gameweek).
+    entries = (
+        db.query(CompetitionEntry)
+        .filter(CompetitionEntry.user_id == current_user.id, CompetitionEntry.status == EntryStatus.CONFIRMED)
+        .all()
+    )
+    total_points = 0
+    for entry in entries:
+        latest = (
+            db.query(ScoreSnapshot)
+            .filter(ScoreSnapshot.competition_entry_id == entry.id)
+            .order_by(ScoreSnapshot.captured_at.desc())
+            .first()
+        )
+        if latest:
+            total_points += latest.points
+
     total_winnings = (
         db.query(func.coalesce(func.sum(Prize.amount), 0))
         .filter(Prize.user_id == current_user.id)
@@ -91,6 +110,7 @@ def my_profile(current_user: User = Depends(get_current_user), db: Session = Dep
         fpl_team_name=team.team_name if team else None,
         fpl_manager_id=team.manager_id if team else None,
         total_gameweeks=total_gameweeks,
+        total_points=total_points,
         best_rank=best_rank,
         total_winnings=total_winnings or Decimal("0"),
         total_withdrawals=total_withdrawals,

@@ -6,7 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.admin import register_admin
 from app.admin_dashboard import router as admin_dashboard_router
 from app.config import settings
-from app.routers import auth, deposits, fpl, gameweeks, internal, users, wallet
+from app.routers import admin_api, auth, deposits, fpl, gameweeks, internal, users, wallet, withdrawals
 
 app = FastAPI(title="FPL Telegram Competition Platform", version="0.1.0")
 
@@ -29,6 +29,8 @@ app.include_router(fpl.router)
 app.include_router(users.router)
 app.include_router(gameweeks.router)
 app.include_router(internal.router)
+app.include_router(withdrawals.router)
+app.include_router(admin_api.router)
 app.include_router(admin_dashboard_router)
 
 register_admin(app, secret_key=settings.admin_session_secret)
@@ -37,6 +39,11 @@ register_admin(app, secret_key=settings.admin_session_secret)
 # dev and small deployments. For real traffic, serve miniapp/ from a CDN
 # or static host instead and just point MINI_APP_URL at that instead.
 app.mount("/miniapp", StaticFiles(directory="miniapp", html=True), name="miniapp")
+
+# Branded admin SPA (login + overview + deposits/withdrawals/users/gameweeks/
+# fraud/audit), talking to /admin-api/*. Separate from sqladmin's /admin,
+# which still exists underneath for full record-level CRUD.
+app.mount("/admin-ui", StaticFiles(directory="admin-ui", html=True), name="admin-ui")
 
 
 # --- Telegram bot: webhook mode ---

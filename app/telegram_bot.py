@@ -68,17 +68,25 @@ async def _send_app_button(message: Message):
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
     await state.set_state(Registration.waiting_for_contact)
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Share my phone number", request_contact=True)]],
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(
+                    text="📱 Share my phone number",
+                    request_contact=True,
+                )
+            ]
+        ],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
+
     await message.answer(
         "Welcome to the Weekly FPL Competition!\n\n"
-        "To register, please share your phone number.",
-        reply_markup=kb,
+        "To continue, please share your phone number using the button below.",
+        reply_markup=keyboard,
     )
-
 
 @dp.message(Registration.waiting_for_contact, F.contact)
 async def got_contact(message: Message, state: FSMContext):

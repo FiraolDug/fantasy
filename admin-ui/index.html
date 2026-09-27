@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FPL Weekly — Admin</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#f2f7f2;--card:#fff;--text:#1b2e1f;--muted:#5f6f63;
@@ -55,15 +56,6 @@ button,input,select,textarea{font:inherit}
   font-size:12px;margin-bottom:14px;display:none;
 }
 .login-error.show{display:block}
-.demo-creds{
-  background:var(--green-light);color:var(--green2);border-radius:10px;
-  padding:12px 14px;font-size:11.5px;margin-top:20px;line-height:1.7;
-}
-.demo-creds b{display:block;margin-bottom:6px;font-size:12px}
-.demo-creds code{
-  background:rgba(255,255,255,.7);padding:1px 6px;border-radius:4px;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
-}
 .login-foot{
   text-align:center;font-size:11px;color:var(--muted);margin-top:18px;
 }
@@ -240,8 +232,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;ba
     <h1>FPL Weekly Admin</h1>
     <p>Sign in with your admin account.</p>
     <div class="login-error" id="loginError"></div>
-    <label>Email / phone</label>
-    <div class="input-wrap"><input id="loginEmail" type="text" autocomplete="username" value="admin@example.com"></div>
+    <label>Phone number</label>
+    <div class="input-wrap"><input id="loginEmail" type="tel" autocomplete="username" placeholder="09xxxxxxxx" required></div>
     <label>Password</label>
     <div class="input-wrap">
       <input id="loginPassword" type="password" autocomplete="current-password">
@@ -329,7 +321,11 @@ async function doLogin() {
     form.set("username", email);
     form.set("password", password);
     const resp = await fetch("/auth/login", { method: "POST", body: form });
-    if (!resp.ok) throw new Error("Invalid credentials");
+    if (!resp.ok) {
+      if (resp.status === 401) throw new Error("Invalid phone number or password.");
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.detail || `Sign-in failed (${resp.status}). Please try again.`);
+    }
     const data = await resp.json();
     authToken = data.access_token;
     const payload = JSON.parse(atob(authToken.split(".")[1]));
@@ -390,6 +386,29 @@ function toast(msg) {
 }
 function closeModal() { document.getElementById("modal").classList.remove("show"); }
 
+function openReasonModal(title, description, confirmLabel, onSubmit) {
+  document.getElementById("modalCard").innerHTML = `
+    <h3>${title}</h3>
+    <p>${description}</p>
+    <label>Reason</label>
+    <input id="reasonInput" type="text" placeholder="Explain why, for the audit log">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-reject" id="reasonSubmitBtn">${confirmLabel}</button>
+    </div>`;
+  const input = document.getElementById("reasonInput");
+  const submit = () => {
+    const reason = input.value.trim();
+    if (!reason) { toast("Enter a reason"); return; }
+    closeModal();
+    onSubmit(reason);
+  };
+  document.getElementById("reasonSubmitBtn").onclick = submit;
+  input.onkeydown = e => { if (e.key === "Enter") submit(); };
+  document.getElementById("modal").classList.add("show");
+  input.focus();
+}
+
 // ============================================================
 // OVERVIEW
 // ============================================================
@@ -446,11 +465,11 @@ async function approveDeposit(id) {
   try { await api(`/deposits/${id}/approve`, { method: "POST" }); toast("Deposit approved and wallet credited"); renderDeposits(); }
   catch (e) { toast(e.message); }
 }
-async function rejectDeposit(id) {
-  const reason = prompt("Reason for rejecting this deposit?");
-  if (reason === null) return;
-  try { await api(`/deposits/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Deposit rejected"); renderDeposits(); }
-  catch (e) { toast(e.message); }
+function rejectDeposit(id) {
+  openReasonModal("Reject deposit", "This reason is recorded in the audit log.", "Reject", async (reason) => {
+    try { await api(`/deposits/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Deposit rejected"); renderDeposits(); }
+    catch (e) { toast(e.message); }
+  });
 }
 
 // ============================================================
@@ -480,11 +499,11 @@ async function approveWithdrawal(id) {
   try { await api(`/withdrawals/${id}/approve`, { method: "POST" }); toast("Marked as paid"); renderWithdrawals(); }
   catch (e) { toast(e.message); }
 }
-async function rejectWithdrawal(id) {
-  const reason = prompt("Reason for rejecting this withdrawal?");
-  if (reason === null) return;
-  try { await api(`/withdrawals/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Withdrawal rejected — funds returned to wallet"); renderWithdrawals(); }
-  catch (e) { toast(e.message); }
+function rejectWithdrawal(id) {
+  openReasonModal("Reject withdrawal", "Funds will be returned to the user's wallet. This reason is recorded in the audit log.", "Reject", async (reason) => {
+    try { await api(`/withdrawals/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Withdrawal rejected — funds returned to wallet"); renderWithdrawals(); }
+    catch (e) { toast(e.message); }
+  });
 }
 
 // ============================================================

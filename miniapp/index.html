@@ -1212,6 +1212,7 @@
       // ============================================================
       let currentGameweek = null; // GameweekOut from /gameweeks/current
       let profile = null; // ProfileOut from /users/me/profile
+      let adsEnabled = false; // mirrors profile.ads_enabled — admin-controlled
       let wallet = null; // WalletOut from /wallet/me
       let pendingManagerLookup = null; // { manager_id, team_name, manager_name } while verify->confirm is in progress
       let pendingDeposit = null; // { amount, method } while the deposit modal is open
@@ -1261,6 +1262,11 @@
       // RENDER
       // ============================================================
       function render() {
+        adsEnabled = !!(profile && profile.ads_enabled);
+        document.querySelectorAll(".ad-slot").forEach((el) => {
+          el.style.display = adsEnabled ? "" : "none";
+        });
+
         document.getElementById("heroName").textContent =
           tgUser.first_name || "there";
         document.getElementById("profileName").textContent =

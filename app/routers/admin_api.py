@@ -32,6 +32,7 @@ from app.models import (
     Withdrawal,
     WithdrawalStatus,
 )
+from app.services.settings import get_platform_settings
 
 router = APIRouter(prefix="/admin-api", tags=["admin-api"])
 
@@ -197,3 +198,33 @@ def list_audit_log(admin: User = Depends(require_admin), db: Session = Depends(g
         }
         for l in logs
     ]
+
+
+# ---------- Platform settings (super-admin only to change; any admin to view) ----------
+
+class PlatformSettingsUpdate(BaseModel):
+    ads_enabled: bool
+
+
+@router.get("/settings")
+def get_settings(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    row = get_platform_settings(db)
+    return {"ads_enabled": row.ads_enabled}
+
+
+@router.patch("/settings")
+def update_settings(
+    payload: PlatformSettingsUpdate,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if admin.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a super admin can change platform-wide settings.",
+        )
+    row = get_platform_settings(db)
+    row.ads_enabled = payload.ads_enabled
+    db.commit()
+    db.refresh(row)
+    return {"ads_enabled": row.ads_enabled}

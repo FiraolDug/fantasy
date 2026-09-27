@@ -341,3 +341,21 @@ class FraudAlert(Base):
     related_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PlatformSettings(Base):
+    """
+    Single-row table (id is always 1) for platform-wide toggles admins
+    control at runtime, as opposed to deployment-time env vars in
+    app/config.py. Use app.services.settings.get_platform_settings(db)
+    rather than querying this directly, so the singleton row always exists.
+    """
+
+    __tablename__ = "platform_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    ads_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __str__(self) -> str:
+        return f"PlatformSettings(ads_enabled={self.ads_enabled})"

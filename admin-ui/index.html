@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FPL Weekly — Admin</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#f2f7f2;--card:#fff;--text:#1b2e1f;--muted:#5f6f63;
@@ -56,9 +55,39 @@ button,input,select,textarea{font:inherit}
   font-size:12px;margin-bottom:14px;display:none;
 }
 .login-error.show{display:block}
+.demo-creds{
+  background:var(--green-light);color:var(--green2);border-radius:10px;
+  padding:12px 14px;font-size:11.5px;margin-top:20px;line-height:1.7;
+}
+.demo-creds b{display:block;margin-bottom:6px;font-size:12px}
+.demo-creds code{
+  background:rgba(255,255,255,.7);padding:1px 6px;border-radius:4px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+}
 .login-foot{
   text-align:center;font-size:11px;color:var(--muted);margin-top:18px;
 }
+.switch{position:relative;display:inline-block;width:44px;height:26px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{
+  position:absolute;inset:0;background:#d7ded9;border-radius:999px;
+  cursor:pointer;transition:background .15s;
+}
+.switch .slider::before{
+  content:"";position:absolute;width:20px;height:20px;left:3px;top:3px;
+  background:#fff;border-radius:50%;transition:transform .15s;
+  box-shadow:0 1px 3px rgba(0,0,0,.25);
+}
+.switch input:checked + .slider{background:var(--green)}
+.switch input:checked + .slider::before{transform:translateX(18px)}
+.switch input:disabled + .slider{opacity:.5;cursor:not-allowed}
+.setting-row{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:16px 0;border-bottom:1px solid var(--border,#e6ede8);
+}
+.setting-row:last-child{border-bottom:0}
+.setting-row .setting-label b{display:block;font-size:14px}
+.setting-row .setting-label span{font-size:12px;color:var(--muted)}
 
 /* ---------- LAYOUT ---------- */
 .layout{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
@@ -232,8 +261,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;ba
     <h1>FPL Weekly Admin</h1>
     <p>Sign in with your admin account.</p>
     <div class="login-error" id="loginError"></div>
-    <label>Phone number</label>
-    <div class="input-wrap"><input id="loginEmail" type="tel" autocomplete="username" placeholder="09xxxxxxxx" required></div>
+    <label>Email / phone</label>
+    <div class="input-wrap"><input id="loginEmail" type="text" autocomplete="username" value="admin@example.com"></div>
     <label>Password</label>
     <div class="input-wrap">
       <input id="loginPassword" type="password" autocomplete="current-password">
@@ -266,6 +295,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;ba
       <a data-view="users"><span class="ico">●</span> Users</a>
       <a data-view="fraud"><span class="ico">⚑</span> Fraud <span class="count hidden" id="cntFraud">0</span></a>
       <a data-view="audit"><span class="ico">✎</span> Audit log</a>
+      <a data-view="settings" data-roles="super_admin"><span class="ico">⚙</span> Settings</a>
     </nav>
     <div class="aside-foot">
       <div>Full record editing (roles, raw tables) is still in the <a href="/admin" style="color:#7de0b8">sqladmin panel</a>.</div>
@@ -321,11 +351,7 @@ async function doLogin() {
     form.set("username", email);
     form.set("password", password);
     const resp = await fetch("/auth/login", { method: "POST", body: form });
-    if (!resp.ok) {
-      if (resp.status === 401) throw new Error("Invalid phone number or password.");
-      const body = await resp.json().catch(() => ({}));
-      throw new Error(body.detail || `Sign-in failed (${resp.status}). Please try again.`);
-    }
+    if (!resp.ok) throw new Error("Invalid credentials");
     const data = await resp.json();
     authToken = data.access_token;
     const payload = JSON.parse(atob(authToken.split(".")[1]));
@@ -370,7 +396,7 @@ function enterApp() {
 // ============================================================
 function go(view) {
   document.querySelectorAll("#mainNav a").forEach(a => a.classList.toggle("active", a.dataset.view === view));
-  const renderers = { overview: renderOverview, deposits: renderDeposits, withdrawals: renderWithdrawals, gameweeks: renderGameweeks, users: renderUsers, fraud: renderFraud, audit: renderAudit };
+  const renderers = { overview: renderOverview, deposits: renderDeposits, withdrawals: renderWithdrawals, gameweeks: renderGameweeks, users: renderUsers, fraud: renderFraud, audit: renderAudit, settings: renderSettings };
   (renderers[view] || renderOverview)();
 }
 
@@ -385,29 +411,6 @@ function toast(msg) {
   setTimeout(() => t.classList.remove("show"), 2600);
 }
 function closeModal() { document.getElementById("modal").classList.remove("show"); }
-
-function openReasonModal(title, description, confirmLabel, onSubmit) {
-  document.getElementById("modalCard").innerHTML = `
-    <h3>${title}</h3>
-    <p>${description}</p>
-    <label>Reason</label>
-    <input id="reasonInput" type="text" placeholder="Explain why, for the audit log">
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-reject" id="reasonSubmitBtn">${confirmLabel}</button>
-    </div>`;
-  const input = document.getElementById("reasonInput");
-  const submit = () => {
-    const reason = input.value.trim();
-    if (!reason) { toast("Enter a reason"); return; }
-    closeModal();
-    onSubmit(reason);
-  };
-  document.getElementById("reasonSubmitBtn").onclick = submit;
-  input.onkeydown = e => { if (e.key === "Enter") submit(); };
-  document.getElementById("modal").classList.add("show");
-  input.focus();
-}
 
 // ============================================================
 // OVERVIEW
@@ -465,11 +468,11 @@ async function approveDeposit(id) {
   try { await api(`/deposits/${id}/approve`, { method: "POST" }); toast("Deposit approved and wallet credited"); renderDeposits(); }
   catch (e) { toast(e.message); }
 }
-function rejectDeposit(id) {
-  openReasonModal("Reject deposit", "This reason is recorded in the audit log.", "Reject", async (reason) => {
-    try { await api(`/deposits/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Deposit rejected"); renderDeposits(); }
-    catch (e) { toast(e.message); }
-  });
+async function rejectDeposit(id) {
+  const reason = prompt("Reason for rejecting this deposit?");
+  if (reason === null) return;
+  try { await api(`/deposits/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Deposit rejected"); renderDeposits(); }
+  catch (e) { toast(e.message); }
 }
 
 // ============================================================
@@ -499,11 +502,11 @@ async function approveWithdrawal(id) {
   try { await api(`/withdrawals/${id}/approve`, { method: "POST" }); toast("Marked as paid"); renderWithdrawals(); }
   catch (e) { toast(e.message); }
 }
-function rejectWithdrawal(id) {
-  openReasonModal("Reject withdrawal", "Funds will be returned to the user's wallet. This reason is recorded in the audit log.", "Reject", async (reason) => {
-    try { await api(`/withdrawals/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Withdrawal rejected — funds returned to wallet"); renderWithdrawals(); }
-    catch (e) { toast(e.message); }
-  });
+async function rejectWithdrawal(id) {
+  const reason = prompt("Reason for rejecting this withdrawal?");
+  if (reason === null) return;
+  try { await api(`/withdrawals/${id}/reject?reason=${encodeURIComponent(reason)}`, { method: "POST" }); toast("Withdrawal rejected — funds returned to wallet"); renderWithdrawals(); }
+  catch (e) { toast(e.message); }
 }
 
 // ============================================================
@@ -634,6 +637,45 @@ async function renderAudit() {
 }
 
 document.getElementById("modal").onclick = e => { if (e.target.id === "modal") closeModal(); };
+
+// ============================================================
+// SETTINGS (super admin only)
+// ============================================================
+async function renderSettings() {
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `<div class="page-head"><div><h2>Settings</h2><p>Platform-wide toggles. Changes apply immediately across the Mini App.</p></div></div>
+    <div class="panel"><div class="panel-head"><h3>Advertising</h3></div><div class="panel-body" id="settingsBody"><div class="empty">Loading…</div></div></div>`;
+  try {
+    const s = await api("/admin-api/settings");
+    const body = document.getElementById("settingsBody");
+    body.innerHTML = `
+      <div class="setting-row">
+        <div class="setting-label">
+          <b>Show ads in the Mini App</b>
+          <span>When off, the ad banner slots are removed entirely — not just hidden.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="adsEnabledToggle" ${s.ads_enabled ? "checked" : ""}>
+          <span class="slider"></span>
+        </label>
+      </div>`;
+    document.getElementById("adsEnabledToggle").onchange = async (e) => {
+      const next = e.target.checked;
+      e.target.disabled = true;
+      try {
+        await api("/admin-api/settings", { method: "PATCH", body: JSON.stringify({ ads_enabled: next }) });
+        toast(next ? "Ads turned on" : "Ads turned off");
+      } catch (err) {
+        e.target.checked = !next;
+        toast(err.message);
+      } finally {
+        e.target.disabled = false;
+      }
+    };
+  } catch (e) {
+    document.getElementById("settingsBody").innerHTML = `<div class="empty">${e.message}</div>`;
+  }
+}
 
 // ============================================================
 // INIT

@@ -10,7 +10,7 @@ Usage:
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app import models  # noqa: F401  (ensures all models are registered)
-from app.models import User, UserRole
+from app.models import PlatformSettings, User, UserRole
 from app.security import hash_password
 
 
@@ -33,6 +33,11 @@ def main():
             print(f"Created super admin: {settings.admin_email}")
         else:
             print("Super admin already exists, skipping.")
+
+        if db.query(PlatformSettings).filter(PlatformSettings.id == 1).first() is None:
+            db.add(PlatformSettings(id=1, ads_enabled=False))
+            db.commit()
+            print("Created default platform settings (ads disabled).")
     finally:
         db.close()
 

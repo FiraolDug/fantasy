@@ -18,6 +18,7 @@ from app.models import (
     WalletTransaction,
     WalletTxnType,
 )
+from app.services.settings import get_platform_settings
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -37,6 +38,7 @@ class ProfileOut(BaseModel):
     total_winnings: Decimal
     total_withdrawals: Decimal
     available_balance: Decimal
+    ads_enabled: bool
 
 
 @router.patch("/me/phone")
@@ -115,4 +117,5 @@ def my_profile(current_user: User = Depends(get_current_user), db: Session = Dep
         total_winnings=total_winnings or Decimal("0"),
         total_withdrawals=total_withdrawals,
         available_balance=wallet.available_balance if wallet else Decimal("0"),
+        ads_enabled=get_platform_settings(db).ads_enabled,
     )

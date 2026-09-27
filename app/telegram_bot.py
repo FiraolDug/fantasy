@@ -118,11 +118,18 @@ async def got_contact(message: Message):
         )
         return
 
-    # Whatever comes next (Manager ID entry, or just opening the app if
-    # that's already done) is asked for inside the Mini App itself, not here
-    # in chat.
-    label = "Open Mini App" if registration["team_registered"] else "Continue"
-    await message.answer("Tap below to continue.", reply_markup=_open_app_keyboard(label))
+    if registration["team_registered"]:
+        await message.answer(
+            "You're already registered.",
+            reply_markup=_open_app_keyboard("Open Mini App"),
+        )
+        return
+
+    # Manager ID collection now happens inside the Mini App itself.
+    await message.answer(
+        "Continue registration in the Mini App to link your FPL Manager ID.",
+        reply_markup=_open_app_keyboard("Complete Registration"),
+    )
 
 
 @dp.message(F.text == "/app")

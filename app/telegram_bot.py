@@ -65,7 +65,7 @@ def _open_app_keyboard(label: str) -> InlineKeyboardMarkup:
 
 def _contact_request_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 Share my phone number", request_contact=True)]],
+        keyboard=[[KeyboardButton(text="Share my phone number", request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
@@ -74,8 +74,8 @@ def _contact_request_keyboard() -> ReplyKeyboardMarkup:
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(
-        "Welcome to the Weekly FPL Competition!\n\n"
-        "To continue, please share your phone number.",
+        "Welcome to the weekly FPL competition.\n\n"
+        "Share your phone number to continue.",
         reply_markup=_contact_request_keyboard(),
     )
 
@@ -91,20 +91,30 @@ async def got_contact(message: Message):
         )
         return
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
             f"{BACKEND_URL}/internal/register",
             headers=_headers(),
             json={
                 "telegram_id": str(message.from_user.id),
+                "contact_user_id": str(message.contact.user_id),
                 "phone_number": message.contact.phone_number,
                 "full_name": message.from_user.full_name,
             },
         )
-        resp.raise_for_status()
+    if resp.status_code == 409:
+        await message.answer(
+            "This phone number or account is already linked to a different registration. "
+            "Please contact support.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    if resp.status_code >= 400:
+        await message.answer("We couldn't save your number. Please try again in a moment.")
+        return
 
     await message.answer(
-        "Thanks! Your phone number has been verified.",
+        "Phone number verified.",
         reply_markup=ReplyKeyboardRemove(),
     )
 
@@ -127,8 +137,8 @@ async def got_contact(message: Message):
 
     # Manager ID collection now happens inside the Mini App itself.
     await message.answer(
-        "Continue registration in the Mini App to link your FPL Manager ID.",
-        reply_markup=_open_app_keyboard("Complete Registration"),
+        "Next, open the app to verify your FPL team.",
+        reply_markup=_open_app_keyboard("Verify my FPL team"),
     )
 
 

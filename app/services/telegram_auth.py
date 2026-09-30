@@ -19,11 +19,17 @@ class InvalidInitData(Exception):
     pass
 
 
-def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
+def validate_init_data(init_data: str, max_age_seconds: int | None = None) -> dict:
+    max_age_seconds = max_age_seconds or settings.telegram_init_data_max_age_seconds
     if not settings.bot_token:
         raise InvalidInitData("BOT_TOKEN is not configured on the server")
 
-    pairs = dict(parse_qsl(init_data, strict_parsing=True))
+    if len(init_data) > 4096:
+        raise InvalidInitData("initData too large")
+    try:
+        pairs = dict(parse_qsl(init_data, strict_parsing=True))
+    except ValueError:
+        raise InvalidInitData("malformed initData")
     received_hash = pairs.pop("hash", None)
     if not received_hash:
         raise InvalidInitData("missing hash")
@@ -36,12 +42,21 @@ def validate_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
     if not hmac.compare_digest(computed_hash, received_hash):
         raise InvalidInitData("hash mismatch — data was not signed by this bot")
 
-    auth_date = int(pairs.get("auth_date", 0))
-    if time.time() - auth_date > max_age_seconds:
+    try:
+        auth_date = int(pairs.get("auth_date", 0))
+    except ValueError:
+        raise InvalidInitData("bad auth_date")
+    age = time.time() - auth_date
+    if age > max_age_seconds or age < -60:
         raise InvalidInitData("initData has expired")
 
     user_raw = pairs.get("user")
     if not user_raw:
         raise InvalidInitData("missing user field")
 
-    return json.loads(user_raw)
+    try:
+        user = json.loads(user_raw)
+        int(user["id"])
+    except (ValueError, KeyError, TypeError):
+        raise InvalidInitData("bad user field")
+    return user

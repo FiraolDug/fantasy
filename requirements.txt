@@ -1,15 +1,15 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 SQLAlchemy==2.0.35
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.9        # PostgreSQL
+# PyMySQL==1.1.1              # uncomment for MySQL / MariaDB (DATABASE_URL=mysql+pymysql://...)
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-jose[cryptography]==3.3.0
 bcrypt==5.0.0
-sqladmin==0.19.0
+pyotp==2.9.0
 python-multipart==0.0.9
 alembic==1.13.2
-itsdangerous==2.2.0
 httpx==0.27.2
 aiogram==3.13.1
-jinja2==3.1.4
+pytest==8.3.3

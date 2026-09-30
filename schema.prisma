@@ -1,0 +1,519 @@
+// Reference schema for the same design as app/models.py (SQLAlchemy is what the app runs on).
+// Provider is one line: use "postgresql" or "mysql". Everything below works on both.
+// MySQL notes: enums become native ENUM columns; UUIDs are stored as CHAR(36) via @db.Char(36).
+datasource db {
+  provider = "postgresql" // change to "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserStatus { ACTIVE SUSPENDED BANNED }
+enum AdminStatus { ACTIVE DISABLED }
+enum VerificationStatus { MANAGER_ACCEPTED AWAITING_OWNERSHIP VERIFIED FAILED EXPIRED }
+enum VerificationStage { MANAGER_ID TEAM_NAME OWNERSHIP }
+enum VerificationOutcome { OK MANAGER_REJECTED NAME_MISMATCH ALREADY_LINKED CHALLENGE_FAILED CHALLENGE_EXPIRED RATE_LIMITED UPSTREAM_ERROR }
+enum VerificationMethod { NAME_MATCH NAME_MATCH_PLUS_CODE }
+enum PostStatus { DRAFT PUBLISHED ARCHIVED }
+enum DepositMethod { TELEBIRR CBE }
+enum DepositStatus { PENDING APPROVED REJECTED EXPIRED }
+enum WithdrawalStatus { PENDING PROCESSING SUCCESS FAILED CANCELLED }
+enum WalletTxnType { DEPOSIT ENTRY_FEE PRIZE WITHDRAWAL REFUND ADJUSTMENT REFERRAL_BONUS }
+enum WalletTxnStatus { PENDING SUCCESS FAILED REVERSED }
+enum EntryStatus { PENDING_PAYMENT CONFIRMED REJECTED REFUNDED CANCELLED }
+enum GameweekStatus { REGISTRATION_OPEN REGISTRATION_LOCKED FPL_MATCHES_IN_PROGRESS SCORES_PROVISIONAL SCORES_FINAL DISPUTE_WINDOW RANKING_LOCKED PRIZE_CALCULATED PAYOUT_IN_PROGRESS ARCHIVED CANCELLED }
+enum DisputeStatus { OPEN UPHELD REJECTED }
+enum RefundStatus { PENDING APPROVED REJECTED PROCESSING SUCCESS FAILED }
+enum ReferralStatus { PENDING HELD REWARDED VOIDED }
+enum Severity { LOW MEDIUM HIGH CRITICAL }
+
+model User {
+  id                 String    @id @default(uuid()) @db.Char(36)
+  telegramId         String    @unique @db.VarChar(32)
+  phoneNumber        String?   @unique @db.VarChar(20)
+  phoneVerifiedAt    DateTime?
+  telegramVerifiedAt DateTime?
+  fullName           String?   @db.VarChar(255)
+  countryCode        String    @default("ET") @db.Char(2)
+  preferredLanguage  String?   @db.VarChar(8)
+  referralCode       String?   @unique @db.VarChar(12)
+  status             UserStatus @default(ACTIVE)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  fplTeam       FplTeam?
+  wallet        Wallet?
+  sessions      UserSession[]
+  verifications FplVerification[]
+  attempts      FplVerificationAttempt[]
+  entries       CompetitionEntry[]
+  deposits      DepositRequest[]
+  withdrawals   Withdrawal[]
+  prizes        Prize[]
+  disputes      Dispute[]
+  refunds       Refund[]
+  securityEvents SecurityEvent[]
+  fraudAlerts   FraudAlert[]
+  referralsMade Referral[] @relation("Referrer")
+  referredBy    Referral?  @relation("Referee")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserSession {
+  id        String    @id @default(uuid()) @db.Char(36)
+  userId    String    @db.Char(36)
+  ipHash    String?   @db.VarChar(64)
+  userAgent String?   @db.VarChar(255)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("user_sessions")
+}
+
+model FplVerification {
+  id                 String              @id @default(uuid()) @db.Char(36)
+  userId             String              @db.Char(36)
+  managerId          String              @db.VarChar(12)
+  status             VerificationStatus
+  teamNameSubmitted  String?             @db.VarChar(64)
+  challengeCode      String?             @db.VarChar(16)
+  challengeExpiresAt DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts           FplVerificationAttempt[]
+
+  @@index([userId, status])
+  @@map("fpl_verifications")
+}
+
+model FplVerificationAttempt {
+  id             String              @id @default(uuid()) @db.Char(36)
+  userId         String              @db.Char(36)
+  verificationId String?             @db.Char(36)
+  stage          VerificationStage
+  outcome        VerificationOutcome
+  managerId      String              @db.VarChar(12)
+  ipHash         String?             @db.VarChar(64)
+  createdAt      DateTime            @default(now())
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verification   FplVerification?    @relation(fields: [verificationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([managerId, createdAt])
+  @@map("fpl_verification_attempts")
+}
+
+// Only exists after successful verification. Two UNIQUEs: one team per user, one owner per manager ID.
+// Also add in a SQL migration:  CHECK (country_code = 'ET')
+model FplTeam {
+  id                   String             @id @default(uuid()) @db.Char(36)
+  userId               String             @unique @db.Char(36)
+  managerId            String             @unique @db.VarChar(12)
+  teamName             String             @db.VarChar(64)
+  teamNameNormalized   String             @db.VarChar(64)
+  countryCode          String             @db.Char(2)
+  verificationMethod   VerificationMethod
+  verifiedAt           DateTime           @default(now())
+  lastSyncedAt         DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries              CompetitionEntry[]
+
+  @@map("fpl_teams")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Char(36)
+  key         String  @unique @db.VarChar(64)
+  description String  @default("") @db.VarChar(255)
+  roles       Role[]
+  @@map("permissions")
+}
+
+model Role {
+  id          String       @id @default(uuid()) @db.Char(36)
+  name        String       @unique @db.VarChar(64)
+  description String       @default("") @db.VarChar(255)
+  isSystem    Boolean      @default(false)
+  permissions Permission[]
+  admins      AdminAccount[]
+  @@map("roles")
+}
+
+model AdminAccount {
+  id                  String      @id @default(uuid()) @db.Char(36)
+  email               String      @unique @db.VarChar(254)
+  fullName            String      @db.VarChar(255)
+  passwordHash        String      @db.VarChar(255)
+  roleId              String      @db.Char(36)
+  mfaSecretEncrypted  String?     @db.Text
+  mfaEnabled          Boolean     @default(true)
+  status              AdminStatus @default(ACTIVE)
+  failedLoginAttempts Int         @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  passwordChangedAt   DateTime?
+  createdBy           String?     @db.Char(36)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  role                Role        @relation(fields: [roleId], references: [id])
+  sessions            AdminSession[]
+  posts               Post[]
+  auditLogs           AuditLog[]
+
+  @@map("admin_accounts")
+}
+
+model AdminSession {
+  id        String   @id @default(uuid()) @db.Char(36)
+  adminId   String   @db.Char(36)
+  tokenHash String   @unique @db.VarChar(64)
+  csrfToken String   @db.VarChar(64)
+  ipAddress String?  @db.VarChar(45)
+  userAgent String?  @db.VarChar(255)
+  lastSeenAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  admin     AdminAccount @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, revokedAt])
+  @@map("admin_sessions")
+}
+
+model Post {
+  id          String     @id @default(uuid()) @db.Char(36)
+  authorId    String     @db.Char(36)
+  title       String     @db.VarChar(160)
+  slug        String     @unique @db.VarChar(180)
+  summary     String?    @db.VarChar(300)
+  body        String     @db.Text
+  status      PostStatus @default(DRAFT)
+  pinned      Boolean    @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  author      AdminAccount @relation(fields: [authorId], references: [id])
+
+  @@index([status, publishedAt])
+  @@map("posts")
+}
+
+// Add in SQL:  CHECK (available_balance >= 0), CHECK (pending_balance >= 0)
+model Wallet {
+  id               String   @id @default(uuid()) @db.Char(36)
+  userId           String   @unique @db.Char(36)
+  availableBalance Decimal  @default(0) @db.Decimal(14, 2)
+  pendingBalance   Decimal  @default(0) @db.Decimal(14, 2)
+  version          Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions     WalletTransaction[]
+  @@map("wallets")
+}
+
+// Append-only ledger. Never update or delete rows; reverse with a new row.
+model WalletTransaction {
+  id             String          @id @default(uuid()) @db.Char(36)
+  walletId       String          @db.Char(36)
+  type           WalletTxnType
+  amount         Decimal         @db.Decimal(14, 2)
+  balanceAfter   Decimal         @db.Decimal(14, 2)
+  status         WalletTxnStatus @default(SUCCESS)
+  referenceType  String?         @db.VarChar(64)
+  referenceId    String?         @db.VarChar(64)
+  idempotencyKey String?         @unique @db.VarChar(128)
+  note           String?         @db.Text
+  createdAt      DateTime        @default(now())
+  wallet         Wallet          @relation(fields: [walletId], references: [id])
+  entries        CompetitionEntry[]
+
+  @@index([walletId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("wallet_transactions")
+}
+
+model DepositRequest {
+  id             String        @id @default(uuid()) @db.Char(36)
+  userId         String        @db.Char(36)
+  method         DepositMethod
+  receiverAccount String       @db.VarChar(64)
+  amount         Decimal       @db.Decimal(14, 2)
+  transactionId  String        @db.VarChar(128)
+  status         DepositStatus @default(PENDING)
+  reviewedBy     String?       @db.Char(36)
+  reviewedAt     DateTime?
+  note           String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id])
+  refunds        Refund[]
+
+  @@unique([method, transactionId])
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("deposit_requests")
+}
+
+model Withdrawal {
+  id                 String           @id @default(uuid()) @db.Char(36)
+  userId             String           @db.Char(36)
+  amount             Decimal          @db.Decimal(14, 2)
+  fee                Decimal          @default(0) @db.Decimal(14, 2)
+  destinationAccount String           @db.VarChar(128)
+  status             WithdrawalStatus @default(PENDING)
+  idempotencyKey     String           @db.VarChar(64)
+  failureReason      String?          @db.Text
+  requestedAt        DateTime         @default(now())
+  processedAt        DateTime?
+  processedBy        String?          @db.Char(36)
+  updatedAt          DateTime         @updatedAt
+  user               User             @relation(fields: [userId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status])
+  @@index([status, requestedAt])
+  @@map("withdrawals")
+}
+
+model Gameweek {
+  id                   String         @id @default(uuid()) @db.Char(36)
+  gwNumber             Int            @unique
+  entryFee             Decimal        @default(200) @db.Decimal(14, 2)
+  registrationDeadline DateTime
+  status               GameweekStatus @default(REGISTRATION_OPEN)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  config               GameweekConfig?
+  entries              CompetitionEntry[]
+  prizes               Prize[]
+  tieBreaks            TieBreakRecord[]
+
+  @@index([status])
+  @@map("gameweeks")
+}
+
+model GameweekConfig {
+  id                 String   @id @default(uuid()) @db.Char(36)
+  gameweekId         String   @unique @db.Char(36)
+  tieBreakRuleVersion String  @default("v1") @db.VarChar(32)
+  gracePeriodMinutes Int      @default(10)
+  disputeWindowHours Int      @default(24)
+  gameweek           Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade)
+  @@map("gameweek_configs")
+}
+
+model CompetitionEntry {
+  id                  String      @id @default(uuid()) @db.Char(36)
+  userId              String      @db.Char(36)
+  gameweekId          String      @db.Char(36)
+  fplTeamId           String      @db.Char(36)
+  walletTransactionId String?     @db.Char(36)
+  status              EntryStatus @default(PENDING_PAYMENT)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  user                User        @relation(fields: [userId], references: [id])
+  gameweek            Gameweek    @relation(fields: [gameweekId], references: [id])
+  fplTeam             FplTeam     @relation(fields: [fplTeamId], references: [id])
+  walletTransaction   WalletTransaction? @relation(fields: [walletTransactionId], references: [id])
+  scores              ScoreSnapshot[]
+  disputes            Dispute[]
+  refunds             Refund[]
+
+  @@unique([userId, gameweekId])
+  @@unique([fplTeamId, gameweekId])
+  @@index([gameweekId, status])
+  @@map("competition_entries")
+}
+
+model ScoreSnapshot {
+  id                 String   @id @default(uuid()) @db.Char(36)
+  competitionEntryId String   @db.Char(36)
+  points             Int
+  rank               Int?
+  isProvisional      Boolean  @default(true)
+  isFinal            Boolean  @default(false)
+  capturedAt         DateTime @default(now())
+  entry              CompetitionEntry @relation(fields: [competitionEntryId], references: [id], onDelete: Cascade)
+
+  @@index([competitionEntryId, capturedAt])
+  @@map("score_snapshots")
+}
+
+model TieBreakRecord {
+  id          String   @id @default(uuid()) @db.Char(36)
+  gameweekId  String   @db.Char(36)
+  tiedUserIds Json
+  ruleApplied String   @db.VarChar(64)
+  resolvedRank Json
+  createdAt   DateTime @default(now())
+  gameweek    Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade)
+  @@map("tie_break_records")
+}
+
+model Prize {
+  id                String   @id @default(uuid()) @db.Char(36)
+  gameweekId        String   @db.Char(36)
+  userId            String   @db.Char(36)
+  position          Int
+  amount            Decimal  @db.Decimal(14, 2)
+  calculationLockId String   @db.VarChar(64)
+  createdAt         DateTime @default(now())
+  gameweek          Gameweek @relation(fields: [gameweekId], references: [id])
+  user              User     @relation(fields: [userId], references: [id])
+  payout            Payout?
+
+  @@unique([gameweekId, position])
+  @@unique([gameweekId, userId])
+  @@map("prizes")
+}
+
+model Payout {
+  id            String           @id @default(uuid()) @db.Char(36)
+  prizeId       String           @unique @db.Char(36)
+  status        WithdrawalStatus @default(PENDING)
+  method        String?          @db.VarChar(32)
+  reference     String?          @db.VarChar(128)
+  failureReason String?          @db.Text
+  paidAt        DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  prize         Prize            @relation(fields: [prizeId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("payouts")
+}
+
+model Dispute {
+  id                 String        @id @default(uuid()) @db.Char(36)
+  competitionEntryId String        @db.Char(36)
+  raisedBy           String        @db.Char(36)
+  reason             String        @db.Text
+  evidenceUrl        String?       @db.VarChar(512)
+  status             DisputeStatus @default(OPEN)
+  resolvedBy         String?       @db.Char(36)
+  resolvedAt         DateTime?
+  resolutionNote     String?       @db.Text
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  entry              CompetitionEntry @relation(fields: [competitionEntryId], references: [id])
+  user               User          @relation(fields: [raisedBy], references: [id])
+
+  @@index([status, createdAt])
+  @@map("disputes")
+}
+
+model Refund {
+  id                 String       @id @default(uuid()) @db.Char(36)
+  depositRequestId   String?      @db.Char(36)
+  competitionEntryId String?      @db.Char(36)
+  userId             String       @db.Char(36)
+  amount             Decimal      @db.Decimal(14, 2)
+  reason             String       @db.Text
+  status             RefundStatus @default(PENDING)
+  approvedBy         String?      @db.Char(36)
+  failureReason      String?      @db.Text
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  user               User         @relation(fields: [userId], references: [id])
+  deposit            DepositRequest?   @relation(fields: [depositRequestId], references: [id])
+  entry              CompetitionEntry? @relation(fields: [competitionEntryId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("refunds")
+}
+
+// One referrer per person, ever. Add in SQL:  CHECK (referrer_id <> referee_id)
+model Referral {
+  id           String         @id @default(uuid()) @db.Char(36)
+  referrerId   String         @db.Char(36)
+  refereeId    String         @unique @db.Char(36)
+  status       ReferralStatus @default(PENDING)
+  rewardAmount Decimal?       @db.Decimal(14, 2)
+  rewardedAt   DateTime?
+  note         String?        @db.VarChar(300)
+  createdAt    DateTime       @default(now())
+  referrer     User           @relation("Referrer", fields: [referrerId], references: [id])
+  referee      User           @relation("Referee", fields: [refereeId], references: [id])
+
+  @@index([referrerId, status])
+  @@map("referrals")
+}
+
+// Grant the application's DB user INSERT and SELECT only on this table.
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Char(36)
+  actorAdminId String?  @db.Char(36)
+  action       String   @db.VarChar(96)
+  entityType   String   @db.VarChar(64)
+  entityId     String   @db.VarChar(64)
+  beforeState  Json?
+  afterState   Json?
+  ipAddress    String?  @db.VarChar(45)
+  userAgent    String?  @db.VarChar(255)
+  createdAt    DateTime @default(now())
+  actor        AdminAccount? @relation(fields: [actorAdminId], references: [id], onDelete: SetNull)
+
+  @@index([actorAdminId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model SecurityEvent {
+  id        String   @id @default(uuid()) @db.Char(36)
+  eventType String   @db.VarChar(64)
+  severity  Severity @default(LOW)
+  userId    String?  @db.Char(36)
+  adminId   String?  @db.Char(36)
+  ipHash    String?  @db.VarChar(64)
+  details   Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@index([ipHash, createdAt])
+  @@map("security_events")
+}
+
+model FraudAlert {
+  id            String   @id @default(uuid()) @db.Char(36)
+  category      String   @db.VarChar(64)
+  description   String   @db.Text
+  severity      Severity @default(MEDIUM)
+  relatedUserId String?  @db.Char(36)
+  resolved      Boolean  @default(false)
+  resolvedAt    DateTime?
+  resolvedBy    String?  @db.Char(36)
+  details       Json?
+  createdAt     DateTime @default(now())
+  user          User?    @relation(fields: [relatedUserId], references: [id])
+
+  @@index([resolved, severity])
+  @@index([relatedUserId])
+  @@map("fraud_alerts")
+}
+
+model PlatformSettings {
+  id         Int      @id @default(1)
+  adsEnabled Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+  @@map("platform_settings")
+}

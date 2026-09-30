@@ -14,12 +14,12 @@
         --card: #fff;
         --text: #1b2e1f;
         --muted: #5f6f63;
-        --green: #17a673;
-        --green2: #0e7a54;
+        --green: #1c7a4b;
+        --green2: #14593a;
         --green-light: #e2f0e9;
         --green-soft: #d4efe3;
         --line: #d8e4dc;
-        --shadow: 0 6px 22px rgba(23, 50, 30, 0.08);
+        --shadow: none;
         --gold: #b8860b;
         --red: #c0473f;
       }
@@ -52,8 +52,8 @@
         position: sticky;
         top: 0;
         z-index: 10;
-        background: rgba(242, 247, 242, 0.94);
-        backdrop-filter: blur(14px);
+        background: var(--bg);
+        
         padding: 14px 16px 10px;
         border-bottom: 1px solid rgba(216, 228, 220, 0.7);
       }
@@ -154,13 +154,13 @@
       .card {
         background: var(--card);
         border: 1px solid var(--line);
-        border-radius: 16px;
+        border-radius: 8px;
         padding: 16px;
         margin-bottom: 12px;
-        box-shadow: var(--shadow);
+        
       }
       .hero {
-        background: linear-gradient(135deg, var(--green), var(--green2));
+        background: var(--green2);
         color: #fff;
         border: 0;
       }
@@ -839,91 +839,6 @@
         </section>
 
         <!-- ONE-TIME REGISTRATION: MANAGER ID ONLY (Telegram already provides name/phone) -->
-        <section id="verify" class="screen">
-          <button class="back" id="verifyBackBtn" onclick="go('games')">‹ Games</button>
-          <span class="badge pending">One-time setup</span>
-          <h1>Link your FPL team</h1>
-          <p>
-            Enter your official FPL Manager ID. We'll retrieve your team
-            automatically — you won't be asked for it again.
-          </p>
-          <div class="card" style="margin-top: 15px">
-            <div
-              class="row"
-              style="
-                border-bottom: 1px solid var(--line);
-                padding-bottom: 14px;
-                margin-bottom: 4px;
-              "
-            >
-              <div class="avatar" id="verifyTgAvatar">—</div>
-              <div class="row-main">
-                <b id="verifyTgName">—</b><span id="verifyTgMeta">—</span>
-              </div>
-              <span>✓</span>
-            </div>
-            <div class="field" style="margin-top: 12px">
-              <label class="label">FPL Manager ID</label>
-              <input
-                id="managerId"
-                class="input"
-                inputmode="numeric"
-                placeholder="e.g. 123456"
-              />
-              <div class="err-msg" id="managerIdErr">
-                Enter a valid Manager ID to continue.
-              </div>
-              <p class="hint">
-                Find this in the URL of your team page on the official Fantasy
-                Premier League site.
-              </p>
-            </div>
-            <button class="btn primary" onclick="verifyFPL()">
-              Find my team
-            </button>
-          </div>
-        </section>
-
-        <!-- CONFIRM TEAM (one-time) -->
-        <section id="confirm" class="screen">
-          <button class="back" onclick="go('verify')">‹ Manager ID</button>
-          <span class="badge final">FPL verified</span>
-          <h1>Is this your team?</h1>
-          <p>
-            Review the details retrieved from FPL. Once confirmed, this team is
-            saved to your account for every future gameweek — you won't enter
-            your Manager ID again.
-          </p>
-          <div class="card" style="margin-top: 15px; text-align: center">
-            <div
-              class="avatar"
-              style="margin: auto; width: 60px; height: 60px; font-size: 16px"
-              id="confirmAvatar"
-            >
-              FD
-            </div>
-            <h2 style="margin-top: 12px" id="confirmTeamName">—</h2>
-            <p id="confirmManagerName">—</p>
-            <div class="info-grid" style="margin-top: 16px; text-align: left">
-              <div class="info">
-                <small>Manager ID</small><b id="confirmManagerId">—</b>
-              </div>
-              <div class="info"><small>Current GW</small><b>—</b></div>
-              <div class="info"><small>Overall rank</small><b>—</b></div>
-              <div class="info"><small>Current points</small><b>—</b></div>
-            </div>
-          </div>
-          <div class="stack">
-            <button class="btn primary" onclick="confirmTeam()">
-              Yes, save this team &amp; join
-            </button>
-            <button class="btn secondary" onclick="go('verify')">
-              No, enter another ID
-            </button>
-          </div>
-        </section>
-
-        <!-- QUICK JOIN (returning, already-registered users) -->
         <section id="quickjoin" class="screen">
           <button class="back" onclick="go('games')">‹ Games</button>
           <span class="badge final">Registered team</span>
@@ -1064,6 +979,15 @@
             <h2 style="margin-top: 12px" id="profileName">—</h2>
             <p id="profileUsername"></p>
           </div>
+          <div class="card" id="referralCard" hidden>
+            <h2>Invite friends, earn <span id="refReward">10</span> birr</h2>
+            <p class="muted" id="refRule"></p>
+            <div class="row" style="justify-content: space-between">
+              <b id="refCode" style="font-size: 20px; letter-spacing: 0.08em">—</b>
+              <button class="btn secondary" id="refCopy" type="button">Copy link</button>
+            </div>
+            <p class="muted" id="refStats" style="margin: 10px 0 0"></p>
+          </div>
           <div class="card">
             <div class="row">
               <div class="row-main">
@@ -1173,9 +1097,29 @@
         const resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
         if (!resp.ok) {
           const body = await resp.json().catch(() => ({}));
-          throw new Error(body.detail || `Request failed (${resp.status})`);
+          const d = body.detail;
+          throw new Error(
+            typeof d === "string" ? d
+              : Array.isArray(d) && d[0] && d[0].msg ? d[0].msg
+              : d && d.message ? d.message
+              : `Request failed (${resp.status})`,
+          );
         }
-        return resp.status === 204 ? null : resp.json();
+        return resp.status === 204 ? null : lowerEnums(await resp.json());
+      }
+
+      // The API returns enum values in UPPER_CASE; this screen's logic uses lower-case.
+      function lowerEnums(v) {
+        if (Array.isArray(v)) return v.map(lowerEnums);
+        if (v && typeof v === "object") {
+          const out = {};
+          for (const [k, x] of Object.entries(v)) {
+            out[k] = ["type", "status", "method", "my_entry_status"].includes(k) && typeof x === "string"
+              ? x.toLowerCase() : lowerEnums(x);
+          }
+          return out;
+        }
+        return v;
       }
 
       async function authenticate() {
@@ -1218,6 +1162,10 @@
       let pendingDeposit = null; // { amount, method } while the deposit modal is open
       let depositAccounts = null; // from /deposits/instructions
       let registrationMode = false; // true only for the very first Manager-ID setup on app load
+
+      function esc(v) {
+        return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      }
 
       function etb(n) {
         return (
@@ -1274,17 +1222,9 @@
         document.getElementById("profileUsername").textContent = tgUser.username
           ? "@" + tgUser.username
           : "";
-        document.getElementById("verifyTgName").textContent = telegramFullName;
-        document.getElementById("verifyTgMeta").textContent =
-          profile.phone_number || "Phone registered";
-        document.getElementById("verifyTgAvatar").textContent = (
-          tgUser.first_name || "?"
-        ).charAt(0);
-        document.getElementById("confirmManagerName").textContent =
-          telegramFullName;
 
         document.getElementById("profilePhone").textContent =
-          profile.phone_number || "—";
+          (profile.phone_verified ? "Verified" : "—");
         document.getElementById("profileTeamName").textContent =
           profile.fpl_team_name || "—";
         document.getElementById("profileManagerId").textContent =
@@ -1393,7 +1333,7 @@
             (tgUser.last_name || "").charAt(0);
           homeTeamRow.innerHTML = `
       <div class="avatar">${initials}</div>
-      <div class="row-main"><b>${profile.fpl_team_name}</b><span>${telegramFullName} · Manager ID ${profile.fpl_manager_id}</span></div>
+      <div class="row-main"><b>${esc(profile.fpl_team_name)}</b><span>${esc(telegramFullName)} · Manager ID ${esc(profile.fpl_manager_id)}</span></div>
       <span>✓</span>`;
           gamesRegisteredNote.style.display = "flex";
           gamesRegisteredTeam.textContent = profile.fpl_team_name;
@@ -1434,6 +1374,7 @@
             withdrawal: "Withdrawal",
             refund: "Refund",
             adjustment: "Adjustment",
+            referral_bonus: "Referral bonus",
           };
 
           let pendingTotal = 0,
@@ -1540,7 +1481,7 @@
             pointsEl.textContent = me.points + " points";
           }
         } catch (e) {
-          list.innerHTML = `<p class="muted">${e.message}</p>`;
+          list.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
           rankEl.textContent = "—";
           pointsEl.textContent = "—";
         }
@@ -1556,7 +1497,7 @@
                   (g) => `
       <div class="row">
         <div class="avatar sm">${g.gw_number}</div>
-        <div class="row-main"><b>GW${g.gw_number}${g.winner_team_name ? " · Winner: " + g.winner_team_name : ""}</b><span>${g.participants} participants</span></div>
+        <div class="row-main"><b>GW${g.gw_number}${g.winner_team_name ? " · Winner: " + g.winner_team_name : ""}</b><span>${esc(g.participants)} participants</span></div>
         <b>${g.winner_prize ? etb(g.winner_prize) : "—"}</b>
       </div>`,
                 )
@@ -1564,7 +1505,7 @@
             : '<p class="muted">No archived gameweeks yet.</p>';
         } catch (e) {
           document.getElementById("historyRows").innerHTML =
-            `<p class="muted">${e.message}</p>`;
+            `<p class="muted">${esc(e.message)}</p>`;
         }
       }
 
@@ -1594,73 +1535,7 @@
           );
           go("quickjoin");
         } else {
-          go("verify");
-        }
-      }
-
-      async function verifyFPL() {
-        const input = document.getElementById("managerId");
-        const err = document.getElementById("managerIdErr");
-        const id = input.value.trim();
-        if (!/^\d{3,10}$/.test(id)) {
-          input.classList.add("err");
-          err.style.display = "block";
-          return;
-        }
-        input.classList.remove("err");
-        err.style.display = "none";
-
-        try {
-          const team = await api("/fpl/lookup", {
-            method: "POST",
-            body: JSON.stringify({ manager_id: id }),
-          });
-          pendingManagerLookup = team;
-          document.getElementById("confirmManagerId").textContent =
-            team.manager_id;
-          document.getElementById("confirmTeamName").textContent =
-            team.team_name;
-          const initials =
-            (tgUser.first_name || "?").charAt(0) +
-            (tgUser.last_name || "").charAt(0);
-          document.getElementById("confirmAvatar").textContent = initials;
-          document.querySelector(
-            "#confirm .info-grid .info:nth-child(2) b",
-          ).textContent = currentGameweek ? currentGameweek.gw_number : "—";
-          document.querySelector(
-            "#confirm .info-grid .info:nth-child(4) b",
-          ).textContent = "—";
-          go("confirm");
-        } catch (e) {
-          input.classList.add("err");
-          err.textContent = e.message || "No FPL manager found with that ID.";
-          err.style.display = "block";
-        }
-      }
-
-      async function confirmTeam() {
-        if (!pendingManagerLookup) return;
-        try {
-          await api("/fpl/confirm", {
-            method: "POST",
-            body: JSON.stringify({
-              manager_id: pendingManagerLookup.manager_id,
-            }),
-          });
-          toast("Team saved to your account");
-          await loadProfile();
-          render();
-          if (registrationMode) {
-            // First-run setup only — land on Home rather than auto-joining
-            // a gameweek the user didn't explicitly ask to enter.
-            registrationMode = false;
-            document.body.classList.remove("registration-mode");
-            go("home");
-          } else {
-            finishJoin();
-          }
-        } catch (e) {
-          toast(e.message);
+          location.href = "onboarding.html";
         }
       }
 
@@ -1836,6 +1711,7 @@
         try {
           await api("/withdrawals", {
             method: "POST",
+            headers: { "Idempotency-Key": crypto.randomUUID().replace(/-/g, "") },
             body: JSON.stringify({ amount: amt, destination_account: account }),
           });
           toast("Withdrawal request submitted");
@@ -1924,17 +1800,37 @@
         }
       }
 
+
+      async function loadReferral() {
+        try {
+          const r = await api("/referrals/me");
+          const rule = r.trigger === "first_entry"
+            ? "You earn it when a friend you invite joins their first gameweek."
+            : "You earn it when a friend you invite verifies their FPL team.";
+          document.getElementById("refReward").textContent = r.reward;
+          document.getElementById("refRule").textContent = rule;
+          document.getElementById("refCode").textContent = r.code;
+          document.getElementById("refStats").textContent =
+            `Invited ${r.invited} · Paid ${r.rewarded} · Waiting ${r.pending} · Earned ${etb(r.earned)}`;
+          const text = r.link || r.code;
+          const btn = document.getElementById("refCopy");
+          btn.textContent = r.link ? "Copy link" : "Copy code";
+          btn.onclick = async () => {
+            try { await navigator.clipboard.writeText(text); toast("Copied"); }
+            catch (_) { toast("Select and copy: " + text); }
+          };
+          document.getElementById("referralCard").hidden = false;
+        } catch (_) { /* card stays hidden */ }
+      }
+
       (async function init() {
         const gate = document.getElementById("accessGate");
         try {
           await authenticate();
           await Promise.all([loadProfile(), loadWallet(), loadGameweek()]);
-          if (!profile.phone_number) {
-            // Shouldn't normally happen — the token itself requires a
-            // verified phone — but guard against a stale/edited profile.
-            throw new Error(
-              "Open the bot and share your phone number to continue.",
-            );
+          if (!profile.verified) {
+            location.replace("onboarding.html");
+            return;
           }
         } catch (e) {
           document.getElementById("accessMessage").textContent = e.message;
@@ -1946,16 +1842,8 @@
         gate.style.display = "none";
         render();
 
-        if (!profile.fpl_manager_id) {
-          // Phone is verified but the FPL Manager ID step (now handled
-          // entirely inside the Mini App, not the bot chat) isn't done yet.
-          registrationMode = true;
-          document.body.classList.add("registration-mode");
-          go("verify");
-          return;
-        }
-
         go("home");
+        loadReferral();
       })();
     </script>
   </body>

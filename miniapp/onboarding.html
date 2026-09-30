@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Verify your FPL team</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="onboarding.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand">Weekly FPL</div>
+    <ol class="steps" id="steps" aria-label="Verification progress">
+      <li data-step="phone">Phone</li>
+      <li data-step="manager_id">Manager ID</li>
+      <li data-step="team_name">Team name</li>
+      <li data-step="ownership">Ownership</li>
+    </ol>
+    <div id="alert" class="notice error" role="alert" hidden></div>
+    <section id="view" aria-live="polite"><p class="muted">Loading…</p></section>
+  </main>
+  <script src="onboarding.js"></script>
+</body>
+</html>

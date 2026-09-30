@@ -2,23 +2,18 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_verified_user
 from app.models import (
-    CompetitionEntry,
-    EntryStatus,
-    FPLTeam,
-    Gameweek,
-    GameweekStatus,
-    ScoreSnapshot,
-    User,
-    WalletTxnType,
+    CompetitionEntry, EntryStatus, Gameweek, GameweekStatus, Prize, ScoreSnapshot, User, WalletTxnType, utcnow,
 )
+from app.services.referrals import reward_if_due
 from app.services.ledger import DuplicateTransactionError, InsufficientFundsError, debit_wallet
 
 router = APIRouter(prefix="/gameweeks", tags=["gameweeks"])
@@ -35,191 +30,94 @@ class GameweekOut(BaseModel):
     my_entry_status: str | None = None
 
 
-class LeaderboardRow(BaseModel):
+class StandingRow(BaseModel):
     rank: int | None
     display_name: str
     points: int
-    is_me: bool
+    is_me: bool = True
 
 
-def _to_out(gw: Gameweek, db: Session, current_user: User | None) -> GameweekOut:
-    participants = (
-        db.query(func.count(CompetitionEntry.id))
-        .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.status == EntryStatus.CONFIRMED)
-        .scalar()
-        or 0
-    )
-    my_status = None
-    if current_user is not None:
-        entry = (
-            db.query(CompetitionEntry)
-            .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.user_id == current_user.id)
-            .first()
-        )
-        my_status = entry.status.value if entry else None
+def _participants(db: Session, gw_id) -> int:
+    return db.query(func.count(CompetitionEntry.id)).filter(
+        CompetitionEntry.gameweek_id == gw_id, CompetitionEntry.status == EntryStatus.CONFIRMED).scalar() or 0
 
-    return GameweekOut(
-        id=gw.id,
-        gw_number=gw.gw_number,
-        entry_fee=gw.entry_fee,
-        registration_deadline=gw.registration_deadline,
-        status=gw.status.value,
-        participants=participants,
-        prize_pool=gw.entry_fee * participants,
-        my_entry_status=my_status,
-    )
+
+def _to_out(gw: Gameweek, db: Session, user: User) -> GameweekOut:
+    entry = db.query(CompetitionEntry).filter(
+        CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.user_id == user.id).first()
+    n = _participants(db, gw.id)
+    return GameweekOut(id=gw.id, gw_number=gw.gw_number, entry_fee=gw.entry_fee,
+                       registration_deadline=gw.registration_deadline, status=gw.status.value,
+                       participants=n, prize_pool=gw.entry_fee * n,
+                       my_entry_status=entry.status.value if entry else None)
 
 
 @router.get("/history", response_model=list[dict])
-def gameweek_history(db: Session = Depends(get_db)):
-    """
-    Publicly viewable per the spec's transparency requirement — no auth
-    required. Only archived gameweeks with a recorded prize are shown.
-    """
-    archived = (
-        db.query(Gameweek)
-        .filter(Gameweek.status == GameweekStatus.ARCHIVED)
-        .order_by(Gameweek.gw_number.desc())
-        .limit(20)
-        .all()
-    )
+def gameweek_history(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Aggregate results only. No team names or user identifiers of other people."""
     out = []
-    for gw in archived:
-        participants = (
-            db.query(func.count(CompetitionEntry.id))
-            .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.status == EntryStatus.CONFIRMED)
-            .scalar()
-            or 0
-        )
-        from app.models import Prize
-
-        winner_prize = (
-            db.query(Prize).filter(Prize.gameweek_id == gw.id, Prize.position == 1).first()
-        )
-        winner_name = None
-        if winner_prize:
-            winner_team = (
-                db.query(FPLTeam)
-                .join(CompetitionEntry, CompetitionEntry.fpl_team_id == FPLTeam.id)
-                .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.user_id == winner_prize.user_id)
-                .first()
-            )
-            winner_name = winner_team.team_name if winner_team else None
-
-        out.append(
-            {
-                "gw_number": gw.gw_number,
-                "participants": participants,
-                "prize_pool": str(gw.entry_fee * participants),
-                "winner_team_name": winner_name,
-                "winner_prize": str(winner_prize.amount) if winner_prize else None,
-            }
-        )
+    for gw in db.query(Gameweek).filter(Gameweek.status == GameweekStatus.ARCHIVED) \
+            .order_by(Gameweek.gw_number.desc()).limit(20):
+        n = _participants(db, gw.id)
+        top = db.query(Prize).filter(Prize.gameweek_id == gw.id, Prize.position == 1).first()
+        out.append({"gw_number": gw.gw_number, "participants": n, "prize_pool": str(gw.entry_fee * n),
+                    "winner_team_name": None, "winner_prize": str(top.amount) if top else None})
     return out
 
 
 @router.get("/current", response_model=GameweekOut)
-def current_gameweek(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    gw = (
-        db.query(Gameweek)
-        .filter(
-            Gameweek.status.in_(
-                [GameweekStatus.REGISTRATION_OPEN, GameweekStatus.REGISTRATION_LOCKED]
-            )
-        )
-        .order_by(Gameweek.gw_number.desc())
-        .first()
-    )
+def current_gameweek(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    gw = db.query(Gameweek).filter(Gameweek.status.in_(
+        [GameweekStatus.REGISTRATION_OPEN, GameweekStatus.REGISTRATION_LOCKED])) \
+        .order_by(Gameweek.gw_number.desc()).first()
     if gw is None:
-        raise HTTPException(status_code=404, detail="No open gameweek right now")
-    return _to_out(gw, db, current_user)
+        raise HTTPException(404, "No open gameweek right now")
+    return _to_out(gw, db, user)
 
 
 @router.post("/{gameweek_id}/join", response_model=GameweekOut)
-def join_gameweek(
-    gameweek_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def join_gameweek(gameweek_id: uuid.UUID, user: User = Depends(require_verified_user), db: Session = Depends(get_db)):
     gw = db.query(Gameweek).filter(Gameweek.id == gameweek_id).with_for_update().first()
     if gw is None:
-        raise HTTPException(status_code=404, detail="Gameweek not found")
-    if gw.status != GameweekStatus.REGISTRATION_OPEN:
-        raise HTTPException(status_code=400, detail="Registration is not open for this gameweek")
-    if datetime.utcnow() > gw.registration_deadline:
-        raise HTTPException(status_code=400, detail="Registration deadline has passed")
-
-    team = db.query(FPLTeam).filter(FPLTeam.user_id == current_user.id, FPLTeam.verified.is_(True)).first()
-    if team is None:
-        raise HTTPException(
-            status_code=400, detail="Confirm your FPL Manager ID before joining a gameweek"
-        )
-
-    existing = (
-        db.query(CompetitionEntry)
-        .filter(CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.user_id == current_user.id)
-        .first()
-    )
-    if existing is not None:
-        raise HTTPException(status_code=409, detail="You already joined this gameweek")
-
+        raise HTTPException(404, "Gameweek not found")
+    if gw.status != GameweekStatus.REGISTRATION_OPEN or utcnow() > gw.registration_deadline:
+        raise HTTPException(400, "Registration is closed for this gameweek")
+    if db.query(CompetitionEntry.id).filter(
+            CompetitionEntry.gameweek_id == gw.id, CompetitionEntry.user_id == user.id).first():
+        raise HTTPException(409, "You already joined this gameweek")
     try:
-        txn = debit_wallet(
-            db,
-            user_id=current_user.id,
-            amount=gw.entry_fee,
-            txn_type=WalletTxnType.ENTRY_FEE,
-            reference_type="gameweek",
-            reference_id=str(gw.id),
-            idempotency_key=f"entry:{current_user.id}:{gw.id}",
-        )
+        txn = debit_wallet(db, user_id=user.id, amount=gw.entry_fee, txn_type=WalletTxnType.ENTRY_FEE,
+                           reference_type="gameweek", reference_id=str(gw.id),
+                           idempotency_key=f"entry:{user.id}:{gw.id}")
     except InsufficientFundsError:
-        raise HTTPException(status_code=402, detail="Insufficient wallet balance for the entry fee")
+        raise HTTPException(402, "Insufficient wallet balance for the entry fee")
     except DuplicateTransactionError:
-        raise HTTPException(status_code=409, detail="Entry already processed")
+        raise HTTPException(409, "Entry already processed")
+    db.add(CompetitionEntry(user_id=user.id, gameweek_id=gw.id, fpl_team_id=user.fpl_team.id,
+                            wallet_transaction_id=txn.id, status=EntryStatus.CONFIRMED))
+    db.flush()
+    reward_if_due(db, None, user, "first_entry")     # same transaction as the entry fee
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "You already joined this gameweek")
+    return _to_out(gw, db, user)
 
-    entry = CompetitionEntry(
-        user_id=current_user.id,
-        gameweek_id=gw.id,
-        fpl_team_id=team.id,
-        wallet_transaction_id=txn.id,
-        status=EntryStatus.CONFIRMED,
-    )
-    db.add(entry)
-    db.commit()
-    return _to_out(gw, db, current_user)
 
-
-@router.get("/{gameweek_id}/leaderboard", response_model=list[LeaderboardRow])
-def leaderboard(
-    gameweek_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    # Latest snapshot per entry for this gameweek.
-    entries = (
-        db.query(CompetitionEntry)
-        .filter(CompetitionEntry.gameweek_id == gameweek_id, CompetitionEntry.status == EntryStatus.CONFIRMED)
-        .all()
-    )
-    rows: list[LeaderboardRow] = []
-    for entry in entries:
-        latest = (
-            db.query(ScoreSnapshot)
-            .filter(ScoreSnapshot.competition_entry_id == entry.id)
-            .order_by(ScoreSnapshot.captured_at.desc())
-            .first()
-        )
-        if latest is None:
-            continue
-        team = db.query(FPLTeam).filter(FPLTeam.id == entry.fpl_team_id).first()
-        rows.append(
-            LeaderboardRow(
-                rank=latest.rank,
-                display_name=team.team_name if team else "Unknown",
-                points=latest.points,
-                is_me=(entry.user_id == current_user.id),
-            )
-        )
-    rows.sort(key=lambda r: r.points, reverse=True)
-    return rows
+@router.get("/{gameweek_id}/leaderboard", response_model=list[StandingRow])
+def my_standing(gameweek_id: uuid.UUID, user: User = Depends(require_verified_user), db: Session = Depends(get_db)):
+    """
+    Returns the caller's own standing only. Other participants' teams, names and scores are never
+    sent to the client, so nothing can be scraped from this endpoint.
+    """
+    entry = db.query(CompetitionEntry).filter(
+        CompetitionEntry.gameweek_id == gameweek_id, CompetitionEntry.user_id == user.id,
+        CompetitionEntry.status == EntryStatus.CONFIRMED).first()
+    if entry is None:
+        return []
+    latest = db.query(ScoreSnapshot).filter(ScoreSnapshot.competition_entry_id == entry.id) \
+        .order_by(ScoreSnapshot.captured_at.desc()).first()
+    if latest is None:
+        return []
+    return [StandingRow(rank=latest.rank, display_name=user.fpl_team.team_name, points=latest.points)]

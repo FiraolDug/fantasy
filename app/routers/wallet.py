@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -58,28 +60,29 @@ def my_transactions(current_user: User = Depends(get_current_user), db: Session 
         .all()
     )
 
+    def _ids(kind):
+        out = []
+        for t in txns:
+            if t.type == kind and t.reference_id:
+                try:
+                    out.append(uuid.UUID(t.reference_id))
+                except ValueError:
+                    pass
+        return out
+
+    # Only rows that belong to this wallet's ledger are looked up, and only for this user.
+    deps = {str(d.id): d for d in db.query(DepositRequest).filter(
+        DepositRequest.id.in_(_ids(WalletTxnType.DEPOSIT)), DepositRequest.user_id == current_user.id)}
+    wds = {str(w.id): w for w in db.query(Withdrawal).filter(
+        Withdrawal.id.in_(_ids(WalletTxnType.WITHDRAWAL)), Withdrawal.user_id == current_user.id)}
+
     out: list[TransactionOut] = []
     for t in txns:
-        status = t.status.value
-        method = None
-        if t.type == WalletTxnType.DEPOSIT and t.reference_id:
-            dep = db.query(DepositRequest).filter(DepositRequest.id == t.reference_id).first()
-            if dep:
-                status = dep.status.value
-                method = dep.method.value
-        elif t.type == WalletTxnType.WITHDRAWAL and t.reference_id:
-            wd = db.query(Withdrawal).filter(Withdrawal.id == t.reference_id).first()
-            if wd:
-                status = wd.status.value
-
-        out.append(
-            TransactionOut(
-                id=str(t.id),
-                type=t.type.value,
-                amount=str(t.amount),
-                status=status,
-                method=method,
-                created_at=t.created_at.isoformat(),
-            )
-        )
+        status, method = t.status.value, None
+        if t.type == WalletTxnType.DEPOSIT and t.reference_id in deps:
+            status, method = deps[t.reference_id].status.value, deps[t.reference_id].method.value
+        elif t.type == WalletTxnType.WITHDRAWAL and t.reference_id in wds:
+            status = wds[t.reference_id].status.value
+        out.append(TransactionOut(id=str(t.id), type=t.type.value, amount=str(t.amount), status=status,
+                                  method=method, created_at=t.created_at.isoformat()))
     return out

@@ -1,190 +1,53 @@
-import uuid
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.deps import get_current_user, require_finance_admin
-from app.models import (
-    DepositRequest,
-    DepositStatus,
-    User,
-    WalletTxnType,
-)
+from app.deps import get_current_user, require_verified_user
+from app.models import DepositMethod, DepositRequest, DepositStatus, User
 from app.schemas import DepositInstructions, DepositRequestCreate, DepositRequestOut
-from app.services.ledger import DuplicateTransactionError, credit_wallet
-from app.utils.audit import log_action
+from app.services.audit import security_event
+from app.services.rate_limit import rate_limit
 
 router = APIRouter(prefix="/deposits", tags=["deposits"])
 
 
 @router.get("/instructions", response_model=DepositInstructions)
-def deposit_instructions():
-    """
-    Static manual-deposit destinations. The user pays to one of these
-    accounts outside the platform, then submits the transaction ID
-    via POST /deposits for admin verification.
-    """
+def deposit_instructions(_: User = Depends(require_verified_user)):
     return DepositInstructions(
         telebirr_receiver_name=settings.telebirr_receiver_name,
         telebirr_receiver_number=settings.telebirr_receiver_number,
         cbe_receiver_name=settings.cbe_receiver_name,
         cbe_account_number=settings.cbe_account_number,
-        instructions=(
-            "Send the exact entry/deposit amount to the account above, then submit "
-            "the transaction ID / reference code you received here. Your wallet is "
-            "credited only after an admin verifies the payment."
-        ),
+        instructions=("Send the amount to the account above, then enter the transaction ID from your receipt. "
+                      "Your wallet is credited after we confirm the payment."),
     )
 
 
-@router.post("", response_model=DepositRequestOut, status_code=status.HTTP_201_CREATED)
-def create_deposit_request(
-    payload: DepositRequestCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    receiver_account = (
-        settings.telebirr_receiver_number
-        if payload.method.value == "telebirr"
-        else settings.cbe_account_number
-    )
-
-    if settings.enforce_unique_deposit_txn_id:
-        existing = (
-            db.query(DepositRequest)
-            .filter(DepositRequest.transaction_id == payload.transaction_id)
-            .first()
-        )
-        if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This transaction ID has already been submitted.",
-            )
-    # NOTE: duplicate-transaction-ID checking is OFF by default
-    # (ENFORCE_UNIQUE_DEPOSIT_TXN_ID=false) for MVP/test use, as requested.
-    # Turn it on in .env before accepting real-money deposits.
-
-    deposit = DepositRequest(
-        user_id=current_user.id,
-        method=payload.method,
-        receiver_account=receiver_account,
-        amount=payload.amount,
-        transaction_id=payload.transaction_id,
-        status=DepositStatus.PENDING,
-    )
+@router.post("", response_model=DepositRequestOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(rate_limit("deposit", 10, 60))])
+def create_deposit_request(payload: DepositRequestCreate, request: Request,
+                           user: User = Depends(require_verified_user), db: Session = Depends(get_db)):
+    if not (Decimal(settings.min_deposit) <= payload.amount <= Decimal(settings.max_deposit)):
+        raise HTTPException(422, f"Deposits must be between {settings.min_deposit} and {settings.max_deposit} ETB")
+    receiver = settings.telebirr_receiver_number if payload.method == DepositMethod.TELEBIRR else settings.cbe_account_number
+    deposit = DepositRequest(user_id=user.id, method=payload.method, receiver_account=receiver,
+                             amount=payload.amount, transaction_id=payload.transaction_id)
     db.add(deposit)
-    db.commit()
-    db.refresh(deposit)
+    try:
+        db.commit()
+    except IntegrityError:     # UNIQUE(method, transaction_id): one receipt can only ever be claimed once
+        db.rollback()
+        security_event(db, request, "duplicate_deposit_txid", user_id=user.id)
+        db.commit()
+        raise HTTPException(409, "This transaction ID has already been submitted.")
     return deposit
 
 
 @router.get("/mine", response_model=list[DepositRequestOut])
-def my_deposits(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return (
-        db.query(DepositRequest)
-        .filter(DepositRequest.user_id == current_user.id)
-        .order_by(DepositRequest.created_at.desc())
-        .all()
-    )
-
-
-@router.get("", response_model=list[DepositRequestOut])
-def list_deposits(
-    admin: User = Depends(require_finance_admin),
-    db: Session = Depends(get_db),
-    status_filter: str | None = None,
-):
-    q = db.query(DepositRequest)
-    if status_filter:
-        q = q.filter(DepositRequest.status == DepositStatus(status_filter))
-    return q.order_by(DepositRequest.created_at.desc()).limit(200).all()
-
-
-@router.post("/{deposit_id}/approve", response_model=DepositRequestOut)
-def approve_deposit(
-    deposit_id: uuid.UUID,
-    admin: User = Depends(require_finance_admin),
-    db: Session = Depends(get_db),
-):
-    """
-    Finance-admin-only. Verifies the transaction_id against the bank/Telebirr
-    statement manually, then credits the user's wallet through the ledger
-    (never by editing Wallet.available_balance directly).
-    """
-    deposit = db.query(DepositRequest).filter(DepositRequest.id == deposit_id).first()
-    if deposit is None:
-        raise HTTPException(status_code=404, detail="Deposit request not found")
-    if deposit.status != DepositStatus.PENDING:
-        raise HTTPException(status_code=400, detail=f"Deposit already {deposit.status.value}")
-
-    try:
-        credit_wallet(
-            db,
-            user_id=deposit.user_id,
-            amount=deposit.amount,
-            txn_type=WalletTxnType.DEPOSIT,
-            reference_type="deposit_request",
-            reference_id=str(deposit.id),
-            idempotency_key=f"deposit:{deposit.id}",
-        )
-    except DuplicateTransactionError:
-        raise HTTPException(status_code=409, detail="This deposit was already credited.")
-
-    before = {"status": deposit.status.value}
-    deposit.status = DepositStatus.APPROVED
-    deposit.reviewed_by = admin.id
-    from datetime import datetime
-
-    deposit.reviewed_at = datetime.utcnow()
-
-    log_action(
-        db,
-        actor_id=admin.id,
-        action="approve_deposit",
-        entity_type="DepositRequest",
-        entity_id=str(deposit.id),
-        before_state=before,
-        after_state={"status": deposit.status.value, "amount": str(deposit.amount)},
-    )
-
-    db.commit()
-    db.refresh(deposit)
-    return deposit
-
-
-@router.post("/{deposit_id}/reject", response_model=DepositRequestOut)
-def reject_deposit(
-    deposit_id: uuid.UUID,
-    reason: str,
-    admin: User = Depends(require_finance_admin),
-    db: Session = Depends(get_db),
-):
-    deposit = db.query(DepositRequest).filter(DepositRequest.id == deposit_id).first()
-    if deposit is None:
-        raise HTTPException(status_code=404, detail="Deposit request not found")
-    if deposit.status != DepositStatus.PENDING:
-        raise HTTPException(status_code=400, detail=f"Deposit already {deposit.status.value}")
-
-    before = {"status": deposit.status.value}
-    deposit.status = DepositStatus.REJECTED
-    deposit.reviewed_by = admin.id
-    deposit.note = reason
-    from datetime import datetime
-
-    deposit.reviewed_at = datetime.utcnow()
-
-    log_action(
-        db,
-        actor_id=admin.id,
-        action="reject_deposit",
-        entity_type="DepositRequest",
-        entity_id=str(deposit.id),
-        before_state=before,
-        after_state={"status": deposit.status.value, "reason": reason},
-    )
-
-    db.commit()
-    db.refresh(deposit)
-    return deposit
+def my_deposits(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(DepositRequest).filter(DepositRequest.user_id == user.id) \
+        .order_by(DepositRequest.created_at.desc()).limit(100).all()

@@ -47,6 +47,7 @@ def credit_wallet(
         raise ValueError("credit amount must be positive")
 
     wallet = _get_or_create_wallet(db, user_id)
+    wallet_before = wallet.available_balance
     wallet.available_balance = wallet.available_balance + amount
 
     txn = WalletTransaction(
@@ -59,14 +60,16 @@ def credit_wallet(
         reference_id=reference_id,
         idempotency_key=idempotency_key,
     )
-    db.add(txn)
     try:
-        db.flush()
+        with db.begin_nested():          # savepoint: a duplicate never rolls back the caller's work
+            db.add(txn)
+            db.flush()
     except IntegrityError as exc:
-        db.rollback()
+        wallet.available_balance = wallet_before
         raise DuplicateTransactionError(
             f"idempotency_key {idempotency_key!r} already used"
         ) from exc
+    wallet.version += 1
     return txn
 
 
@@ -90,6 +93,7 @@ def debit_wallet(
             f"wallet {wallet.id} has {wallet.available_balance}, needs {amount}"
         )
 
+    wallet_before = wallet.available_balance
     wallet.available_balance = wallet.available_balance - amount
 
     txn = WalletTransaction(
@@ -102,12 +106,14 @@ def debit_wallet(
         reference_id=reference_id,
         idempotency_key=idempotency_key,
     )
-    db.add(txn)
     try:
-        db.flush()
+        with db.begin_nested():          # savepoint: a duplicate never rolls back the caller's work
+            db.add(txn)
+            db.flush()
     except IntegrityError as exc:
-        db.rollback()
+        wallet.available_balance = wallet_before
         raise DuplicateTransactionError(
             f"idempotency_key {idempotency_key!r} already used"
         ) from exc
+    wallet.version += 1
     return txn

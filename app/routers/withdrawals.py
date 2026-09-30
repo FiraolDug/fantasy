@@ -1,189 +1,69 @@
-import uuid
-from datetime import datetime
+import re
+from datetime import timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
-from app.deps import get_current_user, require_finance_admin
-from app.models import User, Wallet, WalletTxnType, Withdrawal, WithdrawalStatus
-from app.services.ledger import DuplicateTransactionError, InsufficientFundsError, credit_wallet, debit_wallet
-from app.utils.audit import log_action
+from app.deps import get_current_user, require_verified_user
+from app.models import User, Wallet, WalletTxnType, Withdrawal, WithdrawalStatus, utcnow
+from app.schemas import WithdrawalCreate, WithdrawalOut
+from app.services.ledger import DuplicateTransactionError, InsufficientFundsError, debit_wallet
+from app.services.rate_limit import rate_limit
 
 router = APIRouter(prefix="/withdrawals", tags=["withdrawals"])
+_IDEM = re.compile(r"^[A-Za-z0-9\-_]{16,64}$")
 
 
-class WithdrawalCreate(BaseModel):
-    amount: Decimal = Field(gt=0)
-    destination_account: str = Field(min_length=3, max_length=128)
-
-
-class WithdrawalOut(BaseModel):
-    id: uuid.UUID
-    amount: Decimal
-    destination_account: str
-    status: str
-    requested_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-@router.post("", response_model=WithdrawalOut, status_code=status.HTTP_201_CREATED)
-def request_withdrawal(
-    payload: WithdrawalCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+@router.post("", response_model=WithdrawalOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(rate_limit("withdraw", 5, 60))])
+def request_withdrawal(payload: WithdrawalCreate, idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+                       user: User = Depends(require_verified_user), db: Session = Depends(get_db)):
     """
-    Deducts from available balance immediately (moved to pending) so the
-    same funds can't be spent twice while a request is under review —
-    per the v2 spec's withdrawal design. If rejected, the funds are
-    credited back (see reject_withdrawal below).
+    Idempotent: the client sends a fresh random Idempotency-Key per user action, so a double tap or
+    a retry returns the first withdrawal instead of creating a second one.
+    Funds move out of `available` into `pending` in the same transaction as the request row.
     """
+    if not _IDEM.fullmatch(idempotency_key):
+        raise HTTPException(422, "Idempotency-Key header (16-64 chars) is required")
+    existing = db.query(Withdrawal).filter(Withdrawal.user_id == user.id,
+                                           Withdrawal.idempotency_key == idempotency_key).first()
+    if existing:
+        return existing
+    if payload.amount < Decimal(settings.min_withdrawal):
+        raise HTTPException(422, f"Minimum withdrawal is {settings.min_withdrawal} ETB")
+
+    today = db.query(func.coalesce(func.sum(Withdrawal.amount), 0)).filter(
+        Withdrawal.user_id == user.id, Withdrawal.requested_at >= utcnow() - timedelta(hours=24),
+        Withdrawal.status.in_((WithdrawalStatus.PENDING, WithdrawalStatus.PROCESSING, WithdrawalStatus.SUCCESS))).scalar()
+    if Decimal(today or 0) + payload.amount > Decimal(settings.max_withdrawal_per_day):
+        raise HTTPException(422, "This would exceed your 24-hour withdrawal limit")
+
+    wd = Withdrawal(user_id=user.id, amount=payload.amount, destination_account=payload.destination_account,
+                    idempotency_key=idempotency_key)
+    db.add(wd)
     try:
-        debit_wallet(
-            db,
-            user_id=current_user.id,
-            amount=payload.amount,
-            txn_type=WalletTxnType.WITHDRAWAL,
-            reference_type="withdrawal",
-            reference_id=None,  # filled in after the Withdrawal row exists (see below)
-            idempotency_key=f"withdrawal-request:{current_user.id}:{datetime.utcnow().timestamp()}",
-        )
+        db.flush()
+        debit_wallet(db, user_id=user.id, amount=payload.amount, txn_type=WalletTxnType.WITHDRAWAL,
+                     reference_type="withdrawal", reference_id=str(wd.id),
+                     idempotency_key=f"withdrawal:{wd.id}")
     except InsufficientFundsError:
-        raise HTTPException(status_code=402, detail="Amount exceeds available balance")
-
-    withdrawal = Withdrawal(
-        user_id=current_user.id,
-        amount=payload.amount,
-        destination_account=payload.destination_account,
-        status=WithdrawalStatus.PENDING,
-    )
-    db.add(withdrawal)
-    db.flush()
-
-    wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+        db.rollback()
+        raise HTTPException(402, "Amount exceeds your available balance")
+    except (DuplicateTransactionError, IntegrityError):
+        db.rollback()
+        raise HTTPException(409, "This request was already submitted")
+    wallet = db.query(Wallet).filter(Wallet.user_id == user.id).one()
     wallet.pending_balance = wallet.pending_balance + payload.amount
-
-    # Backfill the ledger row's reference_id now that we have the Withdrawal's id,
-    # so /wallet/transactions can show the withdrawal's real review status.
-    from app.models import WalletTransaction
-
-    txn = (
-        db.query(WalletTransaction)
-        .filter(WalletTransaction.wallet_id == wallet.id, WalletTransaction.type == WalletTxnType.WITHDRAWAL)
-        .order_by(WalletTransaction.created_at.desc())
-        .first()
-    )
-    if txn:
-        txn.reference_id = str(withdrawal.id)
-
     db.commit()
-    db.refresh(withdrawal)
-    return withdrawal
+    return wd
 
 
 @router.get("/mine", response_model=list[WithdrawalOut])
-def my_withdrawals(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return (
-        db.query(Withdrawal)
-        .filter(Withdrawal.user_id == current_user.id)
-        .order_by(Withdrawal.requested_at.desc())
-        .all()
-    )
-
-
-@router.get("", response_model=list[WithdrawalOut])
-def list_withdrawals(admin: User = Depends(require_finance_admin), db: Session = Depends(get_db)):
-    return db.query(Withdrawal).order_by(Withdrawal.requested_at.desc()).limit(200).all()
-
-
-@router.post("/{withdrawal_id}/approve", response_model=WithdrawalOut)
-def approve_withdrawal(
-    withdrawal_id: uuid.UUID,
-    admin: User = Depends(require_finance_admin),
-    db: Session = Depends(get_db),
-):
-    """
-    Marks as paid. Does NOT call a real payment provider (none is
-    configured) — this records that YOU sent the money manually, the
-    same way deposit verification works.
-    """
-    wd = db.query(Withdrawal).filter(Withdrawal.id == withdrawal_id).first()
-    if wd is None:
-        raise HTTPException(status_code=404, detail="Withdrawal not found")
-    if wd.status != WithdrawalStatus.PENDING:
-        raise HTTPException(status_code=400, detail=f"Already {wd.status.value}")
-
-    wallet = db.query(Wallet).filter(Wallet.user_id == wd.user_id).first()
-    wallet.pending_balance = wallet.pending_balance - wd.amount
-
-    before = {"status": wd.status.value}
-    wd.status = WithdrawalStatus.SUCCESS
-    wd.processed_at = datetime.utcnow()
-    wd.processed_by = admin.id
-
-    log_action(
-        db,
-        actor_id=admin.id,
-        action="approve_withdrawal",
-        entity_type="Withdrawal",
-        entity_id=str(wd.id),
-        before_state=before,
-        after_state={"status": wd.status.value},
-    )
-    db.commit()
-    db.refresh(wd)
-    return wd
-
-
-@router.post("/{withdrawal_id}/reject", response_model=WithdrawalOut)
-def reject_withdrawal(
-    withdrawal_id: uuid.UUID,
-    reason: str,
-    admin: User = Depends(require_finance_admin),
-    db: Session = Depends(get_db),
-):
-    """Refunds the held funds back to available balance."""
-    wd = db.query(Withdrawal).filter(Withdrawal.id == withdrawal_id).first()
-    if wd is None:
-        raise HTTPException(status_code=404, detail="Withdrawal not found")
-    if wd.status != WithdrawalStatus.PENDING:
-        raise HTTPException(status_code=400, detail=f"Already {wd.status.value}")
-
-    wallet = db.query(Wallet).filter(Wallet.user_id == wd.user_id).first()
-    wallet.pending_balance = wallet.pending_balance - wd.amount
-
-    try:
-        credit_wallet(
-            db,
-            user_id=wd.user_id,
-            amount=wd.amount,
-            txn_type=WalletTxnType.REFUND,
-            reference_type="withdrawal",
-            reference_id=str(wd.id),
-            idempotency_key=f"withdrawal-refund:{wd.id}",
-        )
-    except DuplicateTransactionError:
-        pass  # already refunded — don't double-credit
-
-    before = {"status": wd.status.value}
-    wd.status = WithdrawalStatus.FAILED
-    wd.processed_at = datetime.utcnow()
-    wd.processed_by = admin.id
-
-    log_action(
-        db,
-        actor_id=admin.id,
-        action="reject_withdrawal",
-        entity_type="Withdrawal",
-        entity_id=str(wd.id),
-        before_state=before,
-        after_state={"status": wd.status.value, "reason": reason},
-    )
-    db.commit()
-    db.refresh(wd)
-    return wd
+def my_withdrawals(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(Withdrawal).filter(Withdrawal.user_id == user.id) \
+        .order_by(Withdrawal.requested_at.desc()).limit(100).all()

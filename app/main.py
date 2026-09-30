@@ -2,95 +2,91 @@ import hmac
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.admin import register_admin
-from app.admin_dashboard import router as admin_dashboard_router
 from app.config import settings
-from app.routers import admin_api, auth, deposits, fpl, gameweeks, internal, users, wallet, withdrawals
-
-app = FastAPI(title="FPL Telegram Competition Platform", version="0.1.0")
-
-# Session middleware backs the admin panel's login session (separate secret
-# from the API's JWT signing key, so compromising one doesn't compromise both).
-app.add_middleware(SessionMiddleware, secret_key=settings.admin_session_secret)
-
-# CORS: tighten allow_origins to your actual Mini App domain before going live.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if not settings.platform_live else [],
-    allow_methods=["*"],
-    allow_headers=["*"],
+from app.routers import (
+    admin_api, admin_auth, auth, deposits, gameweeks, internal, posts, referrals, users, verification, wallet, withdrawals,
 )
 
-app.include_router(auth.router)
-app.include_router(deposits.router)
-app.include_router(wallet.router)
-app.include_router(fpl.router)
-app.include_router(users.router)
-app.include_router(gameweeks.router)
-app.include_router(internal.router)
-app.include_router(withdrawals.router)
-app.include_router(admin_api.router)
-app.include_router(admin_dashboard_router)
+app = FastAPI(
+    title="FPL Platform", version="1.0.0",
+    docs_url=None if settings.platform_live else "/docs",
+    redoc_url=None, openapi_url=None if settings.platform_live else "/openapi.json",
+)
 
-register_admin(app, secret_key=settings.admin_session_secret)
+MAX_BODY_BYTES = 64 * 1024
 
-# Serves the Mini App's static files at /miniapp — convenient for local
-# dev and small deployments. For real traffic, serve miniapp/ from a CDN
-# or static host instead and just point MINI_APP_URL at that instead.
+_CSP_ADMIN = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+              "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+_CSP_MINIAPP = ("default-src 'none'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https:; connect-src 'self'; base-uri 'none'; form-action 'none'; "
+                "frame-ancestors https://web.telegram.org https://*.telegram.org")
+_CSP_API = "default-src 'none'; frame-ancestors 'none'"
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+        return JSONResponse({"detail": "Request too large"}, status_code=413)
+    response = await call_next(request)
+    path = request.url.path
+    h = response.headers
+    h["X-Content-Type-Options"] = "nosniff"
+    h["Referrer-Policy"] = "no-referrer"
+    h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if path.startswith("/admin-ui"):
+        h["Content-Security-Policy"], h["X-Frame-Options"] = _CSP_ADMIN, "DENY"
+    elif path.startswith("/miniapp"):
+        h["Content-Security-Policy"] = _CSP_MINIAPP
+    elif not path.startswith(("/docs", "/openapi")):
+        h["Content-Security-Policy"] = _CSP_API
+        h["Cache-Control"] = "no-store"      # API responses hold personal data: never cache them
+    if settings.platform_live:
+        h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,          # exact origins only; empty = same-origin only
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-CSRF-Token"],
+)
+
+for r in (auth, referrals, verification, users, wallet, deposits, withdrawals, gameweeks, posts, internal, admin_auth, admin_api):
+    app.include_router(r.router)
+
 app.mount("/miniapp", StaticFiles(directory="miniapp", html=True), name="miniapp")
-
-# Branded admin SPA (login + overview + deposits/withdrawals/users/gameweeks/
-# fraud/audit), talking to /admin-api/*. Separate from sqladmin's /admin,
-# which still exists underneath for full record-level CRUD.
 app.mount("/admin-ui", StaticFiles(directory="admin-ui", html=True), name="admin-ui")
 
-
-# --- Telegram bot: webhook mode ---
-# Runs inside this same process/service so a free host (no Background
-# Worker tier) only needs ONE deployable service for API + admin +
-# Mini App + bot. Local dev can use bot.py's polling mode instead.
 if settings.bot_token:
+    from aiogram.types import Update
+
     from app.telegram_bot import bot as tg_bot
     from app.telegram_bot import dp as tg_dp
-    from aiogram.types import Update
 
     @app.on_event("startup")
     async def _set_telegram_webhook():
         if settings.public_base_url:
             if not settings.telegram_webhook_secret:
-                raise RuntimeError(
-                    "TELEGRAM_WEBHOOK_SECRET is required when PUBLIC_BASE_URL enables the Telegram webhook"
-                )
-            webhook_url = f"{settings.public_base_url.rstrip('/')}/telegram/webhook"
-            await tg_bot.set_webhook(
-                webhook_url,
-                secret_token=settings.telegram_webhook_secret,
-                drop_pending_updates=False,
-            )
+                raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is required when PUBLIC_BASE_URL is set")
+            await tg_bot.set_webhook(f"{settings.public_base_url.rstrip('/')}/telegram/webhook",
+                                     secret_token=settings.telegram_webhook_secret, drop_pending_updates=False)
 
-    @app.post("/telegram/webhook")
-    async def telegram_webhook(
-        request: Request,
-        secret_token: str | None = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token"),
-    ):
-        if (
-            not settings.telegram_webhook_secret
-            or secret_token is None
-            or not hmac.compare_digest(secret_token, settings.telegram_webhook_secret)
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid Telegram webhook secret",
-            )
-        data = await request.json()
-        update = Update.model_validate(data, context={"bot": tg_bot})
+    @app.post("/telegram/webhook", include_in_schema=False)
+    async def telegram_webhook(request: Request, secret_token: str | None = Header(default=None, alias="X-Telegram-Bot-Api-Secret-Token")):
+        if not settings.telegram_webhook_secret or secret_token is None or not hmac.compare_digest(
+                secret_token.encode(), settings.telegram_webhook_secret.encode()):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram webhook secret")
+        update = Update.model_validate(await request.json(), context={"bot": tg_bot})
         await tg_dp.feed_update(tg_bot, update)
         return {"ok": True}
 
 
-@app.get("/health")
+@app.get("/health", include_in_schema=False)
 def health():
-    return {"status": "ok", "platform_live": settings.platform_live}
+    return {"status": "ok"}
